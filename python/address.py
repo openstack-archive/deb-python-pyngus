@@ -27,6 +27,8 @@
 #     The 'Target.address' for a receiving Link
 #   properties is a map of address properties (TBD)
 
+## Not fully thought out... TBD
+
 class LinkAddress(object):
     def __init__(self, address):
         self._address = address
