@@ -54,9 +54,21 @@ class _Link(object):
             else:
                 raise Exception("Unknown distribution mode: %s" %
                                 str(desired_mode))
+        self._user_context = None
 
+    def _get_user_context(self):
+        return self._user_context
+
+    def _set_user_context(self, ctxt):
+        self._user_context = ctxt
+
+    user_context = property(_get_user_context, _set_user_context,
+                            doc="""
+Associate an arbitrary applicaion object with this link.
+""")
 
     def _destroy(self):
+        self._user_context = None
         self._pn_link.context = None
         self._pn_link = None
 

@@ -27,17 +27,29 @@ from link import SenderLink, ReceiverLink
 class ConnectionEventHandler(object):
     """
     """
+    def connection_active(self, connection):
+        """connection handshake completed"""
+        pass
+
     def connection_closed(self, connection, reason):
         pass
 
-    def link_pending(self, connection, link):
-        # return True to accept new link,
-        # @todo False to reject
-        return True
+    def sender_pending(self, connection, link_handle,
+                       requested_source, properties={}):
+        # call accept_sender to accept new link,
+        # reject_sender to reject it.
+        pass
+
+    def receiver_pending(self, connection, link_handle,
+                         requested_target, properties={}):
+        # call accept_sender to accept new link,
+        # reject_sender to reject it.
+        pass
 
     def sasl_done(self, connection, result):
         # @todo sasl server support
         pass
+
 
 class Connection(object):
     """
@@ -63,10 +75,13 @@ class Connection(object):
 
         self._sender_links = {}
         self._receiver_links = {}
+        self._pending_links = {}
+        self._pending_link_id = 0
         self._read_done = False
         self._write_done = False
         self._next_tick = 0
         self._user_context = None
+        self._active = False
 
         # @todo sasl configuration and handling
         self._sasl = None
@@ -110,6 +125,7 @@ Associate an arbitrary user object with this Connection.
 
     _NEED_INIT = proton.Endpoint.LOCAL_UNINIT
     _NEED_CLOSE = (proton.Endpoint.LOCAL_ACTIVE|proton.Endpoint.REMOTE_CLOSED)
+    _ACTIVE = (proton.Endpoint.LOCAL_ACTIVE|proton.Endpoint.REMOTE_ACTIVE)
 
     def process(self, now):
         """
@@ -130,6 +146,11 @@ Associate an arbitrary user object with this Connection.
         if self._pn_connection.state & self._NEED_INIT:
             assert False, "Connection always opened() on create"
 
+        if not self._active:
+            if self._pn_connection.state == self._ACTIVE:
+                self._active = False
+                self._handler.connection_active(self, connection)
+
         ssn = self._pn_connection.session_head(self._NEED_INIT)
         while ssn:
             print "Opening remotely initiated session"
@@ -138,9 +159,29 @@ Associate an arbitrary user object with this Connection.
 
         link = self._pn_connection.link_head(self._NEED_INIT)
         while link:
-            print "Link needs init"
-            # @todo support remote link initiation
-            # self._handler.link_pending(self, xxx)
+            print "Remotely initiated Link needs init"
+            index = self._pending_link_id
+            self._pending_link_id += 1
+            assert index not in self._pending_links
+            self._pending_links[index] = link
+            if link.is_sender:
+                req_source = ""
+                if link.remote_source.is_dynamic:
+                    req_source = None
+                elif link.remote_source.address:
+                    req_source = link.remote_source.address
+                self._handler.sender_pending(self, index, req_source,
+                                             {"target-address":
+                                             link.remote_target.address})
+            else:
+                req_target = ""
+                if link.remote_target.is_dynamic:
+                    req_target = None
+                elif link.remote_target.address:
+                    req_target = link.remote_target.address
+                self._handler.receiver_pending(self, index, req_target,
+                                               {"source-address":
+                                               link.remote_source.address})
             link = link.next(self._NEED_INIT)
 
         # ?any need for ACTIVE callback?
@@ -264,18 +305,32 @@ Associate an arbitrary user object with this Connection.
             s = SenderLink(self, pn_link, ident,
                            source_address, target_address,
                            eventHandler, properties)
-            if s:
-                self._sender_links[ident] = s
-                return s
+            self._sender_links[ident] = s
+            return s
         return None
 
-    def accept_sender(self, XXX):
-        # @todo accept_sender(self, XXX):
-        pass
+    def accept_sender(self, link_handle, source_override=None,
+                      event_handler=None, name=None, properties={}):
+        pn_link = self._pending_links.pop(link_handle)
+        if not pn_link:
+            raise Exception("Invalid link_handle: %s" % link_handle)
+        if pn_link.remote_source.is_dynamic and not source_override:
+            raise Exception("A source address must be supplied!")
+        source_addr = source_override or pn_link.remote_source.address
+        name = name or source_addr
+        if name in self._sender_links:
+            raise KeyError("Sender %s already exists!" % name)
+        self._sender_links[name] = SenderLink(self, pn_link, name,
+                                              source_addr,
+                                              pn_link.remote_target.address,
+                                              event_handler, properties)
+        return self._sender_links[name]
 
-    def reject_sender(self, reason, XXX):
-        # @todo reject_sender(self, XXX):
-        pass
+    def reject_sender(self, link_handle, reason):
+        pn_link = self._pending_links.pop(link_handle)
+        if link:
+            # @todo support reason for close
+            pn_link.close()
 
     def create_receiver(self, target_address, source_address,
                         eventHandler, name=None, properties={}):
@@ -293,13 +348,30 @@ Associate an arbitrary user object with this Connection.
                 return r
         return None
 
-    def accept_receiver(self, XXX):
-        # @todo accept_receiver(self, XXX):
+    def accept_receiver(self, link_handle, target_override=None,
+                        event_handler=None, name=None, properties={}):
+        pn_link = self._pending_links.pop(link_handle)
+        if not pn_link:
+            raise Exception("Invalid link_handle: %s" % link_handle)
+        if pn_link.remote_target.is_dynamic and not target_override:
+            raise Exception("A target address must be supplied!")
+        target_addr = target_override or pn_link.remote_target.address
+        name = name or target_addr
+        if name in self._receiver_links:
+            raise KeyError("Receiver %s already exists!" % name)
+        self._receiver_links[name] = ReceiverLink(self, pn_link, name,
+                                                  target_addr,
+                                              pn_link.remote_source.address,
+                                              event_handler, properties)
+        return self._receiver_links[name]
+
         pass
 
-    def reject_receiver(self, reason, XXX):
-        # @todo reject_receiver(self, XXX):
-        pass
+    def reject_receiver(self, link_handle, reason):
+        pn_link = self._pending_links.pop(link_handle)
+        if link:
+            # @todo support reason for close
+            pn_link.close()
 
     def destroy(self, error=None):
         """
