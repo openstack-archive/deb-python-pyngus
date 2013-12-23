@@ -32,6 +32,7 @@ class _Link(object):
         self._pn_link = pn_link
         # @todo: raise jira to add 'context' to api
         pn_link.context = self
+        print "Setting context in link %s" % str(pn_link)
 
         if target_address is None:
             assert pn_link.is_sender, "Dynamic target not allowed"
@@ -57,6 +58,7 @@ class _Link(object):
                 raise Exception("Unknown distribution mode: %s" %
                                 str(desired_mode))
         self._user_context = None
+        self._active = False
 
     def _get_user_context(self):
         return self._user_context
@@ -100,7 +102,7 @@ class SenderEventHandler(object):
     """
     def sender_active(self, sender_link):
         pass
-    def sender_closed(self, sender_link, error):
+    def sender_closed(self, sender_link, error=None):
         pass
 
 
@@ -180,6 +182,7 @@ class SenderLink(_Link):
             proton.Disposition.RELEASED: SenderLink.RELEASED,
             proton.Disposition.MODIFIED: SenderLink.MODIFIED,
             }
+        print "Sender delivery updated"
 
         if delivery.tag in self._pending_acks:
             if delivery.settled:  # remote has finished
@@ -222,7 +225,7 @@ class ReceiverEventHandler(object):
     def receiver_active(self, receiver_link):
         pass
 
-    def receiver_closed(self, receiver_link, error):
+    def receiver_closed(self, receiver_link, error=None):
         pass
 
     def message_received(self, receiver_link, message, handle):
@@ -263,8 +266,6 @@ class ReceiverLink(_Link):
     def message_modified(self, handle):
         self._settle_delivery(handle, proton.Delivery.MODIFIED)
 
-    # @todo - add 'received', 'released', etc
-
     def destroy(self, error=None):
         self._pn_link.close()
         self._connection._remove_receiver(self._name)
@@ -274,6 +275,7 @@ class ReceiverLink(_Link):
     def _delivery_updated(self, delivery):
         # a receive delivery changed state
         # @todo: multi-frame message transfer
+        print "Receive delivery updated"
         if delivery.readable:
             data = self._pn_link.recv(delivery.pending)
             msg = proton.Message()

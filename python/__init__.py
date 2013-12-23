@@ -16,3 +16,6 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+from fusion.container import *
+from fusion.connection import *
+from fusion.link import *

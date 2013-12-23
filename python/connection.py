@@ -47,6 +47,9 @@ class ConnectionEventHandler(object):
         pass
 
     # @todo cleaner sasl support, esp. server side
+    def sasl_step(self, connection, pn_sasl):
+        pass
+
     def sasl_done(self, connection, result):
         pass
 
@@ -84,7 +87,7 @@ class Connection(object):
         self._active = False
 
         # @todo sasl configuration and handling
-        self._sasl = None
+        self._pn_sasl = None
         self._sasl_done = False
 
         self._pn_connection.open()
@@ -112,9 +115,9 @@ class Connection(object):
     @property
     # @todo - think about server side use of sasl!
     def sasl(self):
-        if not self._sasl:
-            self._sasl = self._pn_transport.sasl()
-        return self._sasl
+        if not self._pn_sasl:
+            self._pn_sasl = self._pn_transport.sasl()
+        return self._pn_sasl
 
     def _get_user_context(self):
         return self._user_context
@@ -138,14 +141,15 @@ Associate an arbitrary user object with this Connection.
 
         # wait until SASL has authenticated
         # @todo Server-side SASL
-        if self._sasl:
-            if self._sasl.state not in (proton.SASL.STATE_PASS,
+        if self._pn_sasl:
+            if self._pn_sasl.state not in (proton.SASL.STATE_PASS,
                                         proton.SASL.STATE_FAIL):
-                print("SASL wait.")
+                print("SASL in progress. State=%s" % self._pn_sasl.state)
+                self._handler.sasl_step(self, self._pn_sasl)
                 return
 
-            self._handler.sasl_done(self, self.sasl.outcome)
-            self._sasl = None
+            self._handler.sasl_done(self, self._pn_sasl.outcome)
+            self._pn_sasl = None
 
         if self._pn_connection.state & self._NEED_INIT:
             assert False, "Connection always opened() on create"
@@ -170,45 +174,67 @@ Associate an arbitrary user object with this Connection.
             self._pending_links[index] = link
             if link.is_sender:
                 req_source = ""
-                if link.remote_source.is_dynamic:
+                if link.remote_source.dynamic:
                     req_source = None
                 elif link.remote_source.address:
                     req_source = link.remote_source.address
-                self._handler.sender_pending(self, index, req_source,
-                                             {"target-address":
-                                             link.remote_target.address})
+                self._handler.sender_requested(self, index, req_source,
+                                               {"target-address":
+                                                link.remote_target.address})
             else:
                 req_target = ""
-                if link.remote_target.is_dynamic:
+                if link.remote_target.dynamic:
                     req_target = None
                 elif link.remote_target.address:
                     req_target = link.remote_target.address
-                self._handler.receiver_pending(self, index, req_target,
-                                               {"source-address":
-                                               link.remote_source.address})
+                self._handler.receiver_requested(self, index, req_target,
+                                                 {"source-address":
+                                                  link.remote_source.address})
             link = link.next(self._NEED_INIT)
 
-        # ?any need for ACTIVE callback?
+        # @todo: won't scale
+        link = self._pn_connection.link_head(self._ACTIVE)
+        while link:
+            if link.context and not link.context._active:
+                if link.is_sender:
+                    sender_link = link.context
+                    sender_link._handler.sender_active(sender_link)
+                else:
+                    receiver_link = link.context
+                    receiver_link._handler.receiver_active(receiver_link)
+                link.context._active = True
+            link = link.next(self._ACTIVE)
 
         # process the work queue
 
         delivery = self._pn_connection.work_head
         while delivery:
             print "Delivery updated!"
-            if delivery.link.is_sender:
-                sender_link = delivery.link.context
-                sender_link._delivery_updated(delivery)
-            else:
-                receiver_link = delivery.link.context
-                receiver_link._delivery_updated(delivery)
+            if delivery.link.context:
+                print "Delivery context set!"
+                if delivery.link.is_sender:
+                    sender_link = delivery.link.context
+                    sender_link._delivery_updated(delivery)
+                else:
+                    receiver_link = delivery.link.context
+                    receiver_link._delivery_updated(delivery)
             delivery = delivery.work_next
 
         # close all endpoints closed by remotes
 
         link = self._pn_connection.link_head(self._NEED_CLOSE)
         while link:
-            print "Link needs close"
-            # @todo - find link, invoke callback
+            print "Link closed remotely"
+            link.close()
+            # @todo: error reporting
+            if link.context:
+                if link.is_sender:
+                    sender_link = link.context
+                    sender_link._handler.sender_closed(sender_link, None)
+                else:
+                    receiver_link = link.context
+                    receiver_link._handler.receiver_closed(receiver_link,
+                                                           None)
             link = link.next(self._NEED_CLOSE)
 
         ssn = self._pn_connection.session_head(self._NEED_CLOSE)
@@ -318,7 +344,7 @@ Associate an arbitrary user object with this Connection.
         pn_link = self._pending_links.pop(link_handle)
         if not pn_link:
             raise Exception("Invalid link_handle: %s" % link_handle)
-        if pn_link.remote_source.is_dynamic and not source_override:
+        if pn_link.remote_source.dynamic and not source_override:
             raise Exception("A source address must be supplied!")
         source_addr = source_override or pn_link.remote_source.address
         name = name or source_addr
@@ -357,7 +383,7 @@ Associate an arbitrary user object with this Connection.
         pn_link = self._pending_links.pop(link_handle)
         if not pn_link:
             raise Exception("Invalid link_handle: %s" % link_handle)
-        if pn_link.remote_target.is_dynamic and not target_override:
+        if pn_link.remote_target.dynamic and not target_override:
             raise Exception("A target address must be supplied!")
         target_addr = target_override or pn_link.remote_target.address
         name = name or target_addr

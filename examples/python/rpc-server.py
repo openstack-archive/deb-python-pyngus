@@ -20,11 +20,7 @@ import optparse, sys, time, uuid
 import re, socket, select, errno
 
 from proton import Message
-
-# @todo stop the madness:
-import container as fusion_container
-import connection as fusion_connection
-import link as fusion_link
+import fusion
 
 
 """
@@ -44,7 +40,7 @@ sender_links = {}  # indexed by Source address
 receiver_links = {} # indexed by Target address
 
 
-class SocketConnection(fusion_connection.ConnectionEventHandler):
+class SocketConnection(fusion.ConnectionEventHandler):
     """Associates a fusion Connection with a python network socket"""
 
     def __init__(self, name, socket, container, conn_properties):
@@ -53,6 +49,8 @@ class SocketConnection(fusion_connection.ConnectionEventHandler):
         self.connection = container.create_connection(name, self,
                                                       conn_properties)
         self.connection.user_context = self
+        self.connection.sasl.mechanisms("ANONYMOUS")
+        self.connection.sasl.server()
 
     def fileno(self):
         """Allows use of a SocketConnection in a select() call.
@@ -103,13 +101,18 @@ class SocketConnection(fusion_connection.ConnectionEventHandler):
         receiver_links[requested_target] = receiver
         print "APP: NEW RECEIVER LINK CREATED, target=%s" % requested_target
 
+    # SASL callbacks:
+
+    def sasl_step(self, connection, pn_sasl):
+        print "SASL STEP"
+        pn_sasl.done(pn_sasl.OK)
 
     def sasl_done(self, connection, result):
         print "APP: SASL DONE"
         print result
 
 
-class MySenderLink(fusion_link.SenderEventHandler):
+class MySenderLink(fusion.SenderEventHandler):
     """
     """
     def __init__(self, connection, link_handle, source_address,
@@ -135,7 +138,7 @@ class MySenderLink(fusion_link.SenderEventHandler):
         print "APP: MESSAGE SENT CALLBACK %s" % status
 
 
-class MyReceiverLink(fusion_link.ReceiverEventHandler):
+class MyReceiverLink(fusion.ReceiverEventHandler):
     """
     """
     def __init__(self, connection, link_handle, target_address,
@@ -181,6 +184,8 @@ class MyReceiverLink(fusion_link.ReceiverEventHandler):
                 link.send( response, my_sender,
                            message, time.time() + 5.0)
 
+                self._link.message_accepted(handle)
+
         if self._link.capacity == 0:
             self._link.add_capacity( 5 )
 
@@ -220,7 +225,7 @@ def main(argv=None):
 
     # create an AMQP container that will 'provide' the RPC service
     #
-    container = fusion_container.Container("example RPC service")
+    container = fusion.Container("example RPC service")
     socket_connections = {} # indexed by name (uuid)
 
     while True:

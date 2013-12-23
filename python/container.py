@@ -60,7 +60,7 @@ class Container(object):
         writers = []
         timer_heap = []
         for c in self._connections.itervalues():
-            if c.need_input > 0:
+            if c.needs_input > 0:
                 readers.append(c)
             if c.has_output > 0:
                 writers.append(c)

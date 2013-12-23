@@ -20,11 +20,7 @@ import optparse, sys, time, uuid
 import re, socket, select, errno
 
 from proton import Message
-
-# @todo stop the madness:
-import container as fusion_container
-import connection as fusion_connection
-import link as fusion_link
+import fusion
 
 
 """
@@ -36,7 +32,7 @@ to a server, and waits for a response.  The method call is a map of the form:
 """
 
 
-class MyConnection(fusion_connection.ConnectionEventHandler):
+class MyConnection(fusion.ConnectionEventHandler):
 
     def __init__(self, name, socket, container, properties):
         self.name = name
@@ -149,8 +145,8 @@ class MyConnection(fusion_connection.ConnectionEventHandler):
         print result
 
 
-class MyCaller(fusion_link.SenderEventHandler,
-               fusion_link.ReceiverEventHandler):
+class MyCaller(fusion.SenderEventHandler,
+               fusion.ReceiverEventHandler):
     """
     """
 
@@ -167,11 +163,18 @@ class MyCaller(fusion_link.SenderEventHandler,
         self._method = method_map
         self._reply_to = None
         self._to = None
-        self._receiver_closed = False
-        self._sender_closed = False
+
+        self._send_completed = False
+        self._response_received = False
 
     def done(self):
-        return self._receiver_closed and self._sender_closed
+        return self._send_completed and self._response_received
+
+    def destroy(self):
+        if self._sender:
+            self._sender.destroy()
+        if self._receiver:
+            self._receiver.destroy()
 
     def _send_request(self):
         """Send a message containing the RPC method call
@@ -197,12 +200,14 @@ class MyCaller(fusion_link.SenderEventHandler,
 
     def sender_closed(self, sender_link, error):
         print "APP: SENDER CLOSED"
-        self._sender_closed = True
+        assert sender_link is self._sender
+        self._send_completed = True
 
     # send complete callback:
 
     def __call__(self, sender_link, handle, status, error):
         print "APP: MESSAGE SENT CALLBACK %s" % status
+        self._send_completed = True
 
     # ReceiverEventHandler callbacks:
 
@@ -216,16 +221,20 @@ class MyCaller(fusion_link.SenderEventHandler,
 
     def receiver_closed(self, receiver_link, error):
         print "APP: RECEIVER CLOSED"
-        self._receiver_closed = True
+        assert receiver_link is self._receiver
+        self._response_received = True
 
     def message_received(self, receiver_link, message, handle):
         print "APP: MESSAGE RECEIVED"
+        assert receiver_link is self._receiver
         print "Response received: %s" % str(message)
+        receiver_link.message_accepted(handle)
+        self._response_received = True
 
-        self._sender.destroy()
-        del self._sender
-        self._receiver.destroy()
-        del self._receiver
+        #self._sender.destroy()
+        #del self._sender
+        #self._receiver.destroy()
+        #del self._receiver
 
 
 def main(argv=None):
@@ -267,7 +276,7 @@ def main(argv=None):
 
     # create AMQP container, connection, sender and receiver
     #
-    container = fusion_container.Container(uuid.uuid4().hex)
+    container = fusion.Container(uuid.uuid4().hex)
     my_connection = MyConnection( "to-server", my_socket,
                                   container, {})
 
@@ -283,12 +292,16 @@ def main(argv=None):
                           my_connection,
                           "my-source-address",
                           "my-target-address",
-                          receiver_properties = {"capacity": 1})
+                          receiver_properties={"capacity": 1},
+                          sender_properties={})
 
     while not my_caller.done():
         my_connection.process()
 
     print "DONE"
+
+    my_caller.destroy()
+    my_connection.process()
 
     return 0
 
