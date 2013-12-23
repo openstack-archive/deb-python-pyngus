@@ -34,20 +34,20 @@ class ConnectionEventHandler(object):
     def connection_closed(self, connection, reason):
         pass
 
-    def sender_pending(self, connection, link_handle,
-                       requested_source, properties={}):
+    def sender_requested(self, connection, link_handle,
+                         requested_source, properties={}):
         # call accept_sender to accept new link,
         # reject_sender to reject it.
         pass
 
-    def receiver_pending(self, connection, link_handle,
-                         requested_target, properties={}):
+    def receiver_requested(self, connection, link_handle,
+                           requested_target, properties={}):
         # call accept_sender to accept new link,
         # reject_sender to reject it.
         pass
 
+    # @todo cleaner sasl support, esp. server side
     def sasl_done(self, connection, result):
-        # @todo sasl server support
         pass
 
 
@@ -90,6 +90,10 @@ class Connection(object):
         self._pn_connection.open()
         self._pn_session = self._pn_connection.session()
         self._pn_session.open()
+
+    @property
+    def container(self):
+        return self._container
 
     @property
     # @todo - hopefully remove
@@ -148,8 +152,8 @@ Associate an arbitrary user object with this Connection.
 
         if not self._active:
             if self._pn_connection.state == self._ACTIVE:
-                self._active = False
-                self._handler.connection_active(self, connection)
+                self._active = True
+                self._handler.connection_active(self)
 
         ssn = self._pn_connection.session_head(self._NEED_INIT)
         while ssn:
@@ -328,7 +332,7 @@ Associate an arbitrary user object with this Connection.
 
     def reject_sender(self, link_handle, reason):
         pn_link = self._pending_links.pop(link_handle)
-        if link:
+        if pn_link:
             # @todo support reason for close
             pn_link.close()
 
@@ -369,7 +373,7 @@ Associate an arbitrary user object with this Connection.
 
     def reject_receiver(self, link_handle, reason):
         pn_link = self._pending_links.pop(link_handle)
-        if link:
+        if pn_link:
             # @todo support reason for close
             pn_link.close()
 

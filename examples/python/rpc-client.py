@@ -36,44 +36,196 @@ to a server, and waits for a response.  The method call is a map of the form:
 """
 
 
-class MyConnectionEventHandler(fusion_connection.ConnectionEventHandler):
+class MyConnection(fusion_connection.ConnectionEventHandler):
+
+    def __init__(self, name, socket, container, properties):
+        self.name = name
+        self.socket = socket
+        self.connection = container.create_connection(name, self,
+                                                      properties)
+        self.connection.user_context = self
+
+    def process(self):
+        """ Do connection-based processing (I/O and timers) """
+        readfd = []
+        writefd = []
+        if self.connection.needs_input > 0:
+            readfd = [self.socket]
+        if self.connection.has_output > 0:
+            writefd = [self.socket]
+
+        timeout = None
+        deadline = self.connection.next_tick
+        if deadline:
+            now = time.time()
+            timeout = 0 if deadline <= now else deadline - now
+
+        print("select start (t=%s)" % str(timeout))
+        readable,writable,ignore = select.select(readfd,writefd,[],timeout)
+        print("select return")
+
+        if readable:
+            count = self.connection.needs_input
+            if count > 0:
+                try:
+                    sock_data = self.socket.recv(count)
+                    if sock_data:
+                        self.connection.process_input( sock_data )
+                    else:
+                        # closed?
+                        self.connection.close_input()
+                except socket.timeout, e:
+                    raise  # I don't expect this
+                except socket.error, e:
+                    err = e.args[0]
+                    # ignore non-fatal errors
+                    if (err != errno.EAGAIN and
+                        err != errno.EWOULDBLOCK and
+                        err != errno.EINTR):
+                        # otherwise, unrecoverable:
+                        self.connection.close_input()
+                        raise
+                except:  # beats me...
+                    self.connection.close_input()
+                    raise
+
+        if writable:
+            data = self.connection.output_data()
+            if data:
+                try:
+                    rc = self.socket.send(data)
+                    if rc > 0:
+                        self.connection.output_written(rc)
+                    else:
+                        # else socket closed
+                        self.connection.close_output()
+                except socket.timeout, e:
+                    raise # I don't expect this
+                except socket.error, e:
+                    err = e.args[0]
+                    # ignore non-fatal errors
+                    if (err != errno.EAGAIN and
+                        err != errno.EWOULDBLOCK and
+                        err != errno.EINTR):
+                        # otherwise, unrecoverable
+                        self.connection.close_output()
+                        raise
+                except:  # beats me...
+                    self.connection.close_output()
+                    raise
+
+        self.connection.process(time.time())
+
+    def destroy(self, error=None):
+        self.connection.user_context = None
+        self.connection.destroy()
+        self.connection = None
+        self.socket.close()
+        self.socket = None
+
+    # Connection callbacks:
+
+    def connection_active(self, connection):
+        """connection handshake completed"""
+        print "APP: CONN ACTIVE"
+
+    def connection_closed(self, connection, reason):
+        print "APP: CONN CLOSED"
+
+    def sender_requested(self, connection, link_handle,
+                         requested_source, properties={}):
+        # call accept_sender to accept new link,
+        # reject_sender to reject it.
+        assert False, "Not expected"
+
+    def receiver_requested(self, connection, link_handle,
+                           requested_target, properties={}):
+        # call accept_sender to accept new link,
+        # reject_sender to reject it.
+        assert False, "Not expected"
 
     def sasl_done(self, connection, result):
         print "APP: SASL DONE"
         print result
 
-    def connection_closed(self, connection, reason):
-        print "APP: CONN CLOSED"
 
-    def link_pending(self, connection, link):
-        print "APP: LINK PENDING"
-        return True
-
-
-class MySenderEventHandler(fusion_link.SenderEventHandler):
+class MyCaller(fusion_link.SenderEventHandler,
+               fusion_link.ReceiverEventHandler):
     """
     """
+
+    def __init__(self, method_map, my_connection,
+                 my_source, my_target,
+                 receiver_properties, sender_properties):
+        conn = my_connection.connection
+        self._sender = conn.create_sender(my_source, target_address=None,
+                                          eventHandler=self, name=my_source,
+                                          properties=sender_properties)
+        self._receiver = conn.create_receiver(my_target, source_address=None,
+                                              eventHandler=self, name=my_target,
+                                              properties=receiver_properties)
+        self._method = method_map
+        self._reply_to = None
+        self._to = None
+        self._receiver_closed = False
+        self._sender_closed = False
+
+    def done(self):
+        return self._receiver_closed and self._sender_closed
+
+    def _send_request(self):
+        """Send a message containing the RPC method call
+        """
+        msg = Message()
+        msg.subject = "An RPC call!"
+        msg.address = self._to
+        msg.reply_to = self._reply_to
+        msg.body = self._method
+        msg.correlation_id = 5  # whatever...
+
+        self._sender.send(msg, self, None, time.time() + 10)
+
+    # SenderEventHandler callbacks:
+
     def sender_active(self, sender_link):
         print "APP: SENDER ACTIVE"
+        assert sender_link is self._sender
+        self._to = sender_link.target_address
+        assert self._to, "Expected a target address!!!"
+        if self._reply_to:
+            self._send_request()
 
     def sender_closed(self, sender_link, error):
         print "APP: SENDER CLOSED"
+        self._sender_closed = True
 
+    # send complete callback:
 
-class MyReceiverEventHandler(fusion_link.ReceiverEventHandler):
+    def __call__(self, sender_link, handle, status, error):
+        print "APP: MESSAGE SENT CALLBACK %s" % status
+
+    # ReceiverEventHandler callbacks:
 
     def receiver_active(self, receiver_link):
         print "APP: RECEIVER ACTIVE"
+        assert receiver_link is self._receiver
+        self._reply_to = receiver_link.source_address
+        assert self._reply_to, "Expected a source address!!!"
+        if self._to:
+            self._send_request()
 
     def receiver_closed(self, receiver_link, error):
         print "APP: RECEIVER CLOSED"
+        self._receiver_closed = True
 
     def message_received(self, receiver_link, message, handle):
         print "APP: MESSAGE RECEIVED"
+        print "Response received: %s" % str(message)
 
-
-def send_callback(sender, handle, status, error=None):
-    print "APP: MESSAGE SENT CALLBACK"
+        self._sender.destroy()
+        del self._sender
+        self._receiver.destroy()
+        del self._receiver
 
 
 def main(argv=None):
@@ -90,15 +242,7 @@ def main(argv=None):
     if not method_info:
         assert False, "No method info specified!"
     if len(method_info) % 2 != 1:
-        assert False, "An even number of method arguments is required!"
-
-
-    method = {'method': method_info[0],
-              'args': dict([(method_info[i], method_info[i+1])
-                            for i in range(1, len(method_info), 2)])}
-
-    print "method=%s" % str(method)
-
+        assert False, "An even number of method arguments are required!"
 
     # Create a socket connection to the server
     #
@@ -123,109 +267,26 @@ def main(argv=None):
 
     # create AMQP container, connection, sender and receiver
     #
-    conn_handler = MyConnectionEventHandler()
-    send_handler = MySenderEventHandler()
-    recv_handler = MyReceiverEventHandler()
-
     container = fusion_container.Container(uuid.uuid4().hex)
-    connection = container.create_connection("server",
-                                             conn_handler)
+    my_connection = MyConnection( "to-server", my_socket,
+                                  container, {})
+
     # @todo: need better sasl + server
-    connection.sasl.mechanisms("ANONYMOUS")
-    connection.sasl.client()
+    my_connection.connection.sasl.mechanisms("ANONYMOUS")
+    my_connection.connection.sasl.client()
 
-    sender = connection.create_sender( "rpc-client-src",
-                                       "rpc-server-tgt",
-                                       send_handler )
+    # Create the RPC caller
+    method = {'method': method_info[0],
+              'args': dict([(method_info[i], method_info[i+1])
+                            for i in range(1, len(method_info), 2)])}
+    my_caller = MyCaller( method,
+                          my_connection,
+                          "my-source-address",
+                          "my-target-address",
+                          receiver_properties = {"capacity": 1})
 
-    receiver = connection.create_receiver( "rpc-client-tgt",
-                                           "rpc-server-src",
-                                           recv_handler )
-
-    # send a message containing the RPC method call
-    #
-    msg = Message()
-    msg.address = "rpc-server-address"
-    msg.subject = "An RPC call!"
-    msg.reply_to = "rpc-client-tgt"
-    msg.body = method
-
-    sender.send( msg, send_callback, "my-handle", opts.timeout )
-
-    while not connection.closed:
-
-        #
-        # Poll for I/O & timers
-        #
-
-        readfd = []
-        writefd = []
-        if connection.needs_input > 0:
-            readfd = [my_socket]
-        if connection.has_output > 0:
-            writefd = [my_socket]
-
-        timeout = None
-        deadline = connection.next_tick
-        if deadline:
-            now = time.time()
-            timeout = 0 if deadline <= now else deadline - now
-
-        print("select start (t=%s)" % str(timeout))
-        readable,writable,ignore = select.select(readfd,writefd,[],timeout)
-        print("select return")
-
-        if readable:
-            count = connection.needs_input
-            if count > 0:
-                try:
-                    sock_data = my_socket.recv(count)
-                    if sock_data:
-                        connection.process_input( sock_data )
-                    else:
-                        # closed?
-                        connection.close_input()
-                except socket.timeout, e:
-                    raise  # I don't expect this
-                except socket.error, e:
-                    err = e.args[0]
-                    # ignore non-fatal errors
-                    if (err != errno.EAGAIN and
-                        err != errno.EWOULDBLOCK and
-                        err != errno.EINTR):
-                        # otherwise, unrecoverable:
-                        connection.close_input()
-                        raise
-                except:  # beats me...
-                    connection.close_input()
-                    raise
-
-        if writable:
-            data = connection.output_data()
-            if data:
-                try:
-                    rc = my_socket.send(data)
-                    if rc > 0:
-                        connection.output_written(rc)
-                    else:
-                        # else socket closed
-                        connection.close_output()
-                except socket.timeout, e:
-                    raise # I don't expect this
-                except socket.error, e:
-                    err = e.args[0]
-                    # ignore non-fatal errors
-                    if (err != errno.EAGAIN and
-                        err != errno.EWOULDBLOCK and
-                        err != errno.EINTR):
-                        # otherwise, unrecoverable
-                        connection.close_output()
-                        raise
-                except:  # beats me...
-                    connection.close_output()
-                    raise
-
-        connection.process(time.time())
+    while not my_caller.done():
+        my_connection.process()
 
     print "DONE"
 

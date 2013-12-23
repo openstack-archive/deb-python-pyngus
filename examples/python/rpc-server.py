@@ -39,6 +39,11 @@ map sent in the request.
 """
 
 
+# Maps of outgoing and incoming links
+sender_links = {}  # indexed by Source address
+receiver_links = {} # indexed by Target address
+
+
 class SocketConnection(fusion_connection.ConnectionEventHandler):
     """Associates a fusion Connection with a python network socket"""
 
@@ -61,9 +66,43 @@ class SocketConnection(fusion_connection.ConnectionEventHandler):
     def connection_closed(self, connection, reason):
         print "APP: CONN CLOSED"
 
-    def link_pending(self, connection, link):
-        print "APP: LINK PENDING"
-        return True
+    def sender_requested(self, connection, link_handle,
+                         requested_source, properties):
+        print "APP: SENDER LINK REQUESTED"
+        global sender_links
+
+        name = uuid.uuid4().hex
+        # allow for requested_source address if it doesn't conflict with an
+        # existing address
+        if not requested_source or requested_source in sender_links:
+            requested_source = "/%s/%s" % (connection.container.name,
+                                           name)
+            assert requested_source not in sender_links
+
+        sender = MySenderLink(connection, link_handle, requested_source,
+                              name, {})
+        sender_links[requested_source] = sender
+        print "APP: NEW SENDER LINK CREATED, source=%s" % requested_source
+
+    def receiver_requested(self, connection, link_handle,
+                           requested_target, properties):
+        print "APP: RECEIVER LINK REQUESTED"
+        # allow for requested_source address if it doesn't conflict with an
+        # existing address
+        global receiver_links
+
+        name = uuid.uuid4().hex
+        if not requested_target or requested_target in receiver_links:
+            requested_target = "/%s/%s" % (connection.container.name,
+                                           name)
+            assert requested_target not in receiver_links
+
+        receiver = MyReceiverLink(connection, link_handle,
+                                   requested_target, name,
+                                  {"capacity": 3})
+        receiver_links[requested_target] = receiver
+        print "APP: NEW RECEIVER LINK CREATED, target=%s" % requested_target
+
 
     def sasl_done(self, connection, result):
         print "APP: SASL DONE"
@@ -74,30 +113,38 @@ class MySenderLink(fusion_link.SenderEventHandler):
     """
     """
     def __init__(self, connection, link_handle, source_address,
-                 name):
+                 name, properties):
 
         self.sender_link = connection.accept_sender(link_handle,
                                                     source_address,
                                                     self,
-                                                    name)
+                                                    name,
+                                                    properties)
 
     # SenderEventHandler callbacks:
+
     def sender_active(self, sender_link):
         print "APP: SENDER ACTIVE"
 
     def sender_closed(self, sender_link, error):
         print "APP: SENDER CLOSED"
 
+    # 'message sent' callback:
+
+    def __call__(self, sender, handle, status, error=None):
+        print "APP: MESSAGE SENT CALLBACK %s" % status
+
 
 class MyReceiverLink(fusion_link.ReceiverEventHandler):
     """
     """
     def __init__(self, connection, link_handle, target_address,
-                 name):
-        self.receiver_link = connection.accept_receiver(link_handle,
-                                                        target_address,
-                                                        self,
-                                                        name)
+                 name, properties):
+        self._link = connection.accept_receiver(link_handle,
+                                                target_address,
+                                                self,
+                                                name,
+                                                properties)
 
     # ReceiverEventHandler callbacks:
     def receiver_active(self, receiver_link):
@@ -109,9 +156,33 @@ class MyReceiverLink(fusion_link.ReceiverEventHandler):
     def message_received(self, receiver_link, message, handle):
         print "APP: MESSAGE RECEIVED"
 
+        global sender_links
 
-def send_callback(sender, handle, status, error=None):
-    print "APP: MESSAGE SENT CALLBACK"
+        # extract to reply-to, correlation id
+        reply_to = message.reply_to
+        if not reply_to or reply_to not in sender_links:
+            self._link.message_rejected(handle, "Bad reply-to address")
+        else:
+            my_sender = sender_links[reply_to]
+            correlation_id = message.correlation_id
+            method_map = message.body
+            if (not isinstance(method_map, dict) or
+                'method' not in method_map):
+                self._link.message_rejected(handle, "Bad format")
+            else:
+                print "Echoing back message map"
+                response = Message()
+                response.address = reply_to
+                response.subject = message.subject
+                response.correlation_id = correlation_id
+                response.body = {"response": method_map}
+
+                link = my_sender.sender_link
+                link.send( response, my_sender,
+                           message, time.time() + 5.0)
+
+        if self._link.capacity == 0:
+            self._link.add_capacity( 5 )
 
 
 def main(argv=None):
@@ -125,7 +196,7 @@ def main(argv=None):
 
     opts, arguments = parser.parse_args(args=argv)
 
-    # Create a socket connection to the server
+    # Create a socket for inbound connections
     #
     regex = re.compile(r"^amqp://([a-zA-Z0-9.]+)(:([\d]+))?$")
     print("Listening on %s" % opts.address)
@@ -162,7 +233,7 @@ def main(argv=None):
         writefd = []
         readers,writers,timers = container.need_processing()
 
-        # map fusion Connections to my SocketConnections
+        # map fusion Connections back to my SocketConnections
         for c in readers:
             sc = c.user_context
             assert sc and isinstance(sc, SocketConnection)
@@ -174,7 +245,7 @@ def main(argv=None):
 
         timeout = None
         if timers:
-            deadline = timers[0].next_tick
+            deadline = timers[0].next_tick # 0 == next expiring timer
             now = time.time()
             timeout = 0 if deadline <= now else deadline - now
 
@@ -250,10 +321,6 @@ def main(argv=None):
                     w.connection.close_output()
                     raise
                 w.connection.process(time.time())
-
-        print "How to close connections that are finished???"
-
-        # Send replies
 
     return 0
 

@@ -33,15 +33,17 @@ class _Link(object):
         # @todo: raise jira to add 'context' to api
         pn_link.context = self
 
-        if target_address:
-            self._pn_link.target.address = target_address
-        else:
+        if target_address is None:
+            assert pn_link.is_sender, "Dynamic target not allowed"
             self._pn_link.target.dynamic = True
+        elif target_address:
+            self._pn_link.target.address = target_address
 
-        if source_address:
-            self._pn_link.source.address = source_address
-        else:
+        if source_address is None:
+            assert pn_link.is_receiver, "Dynamic source not allowed"
             self._pn_link.source.dynamic = True
+        elif source_address:
+            self._pn_link.source.address = source_address
 
         desired_mode = properties.get("distribution-mode")
         if desired_mode:
@@ -64,8 +66,28 @@ class _Link(object):
 
     user_context = property(_get_user_context, _set_user_context,
                             doc="""
-Associate an arbitrary applicaion object with this link.
+Associate an arbitrary application object with this link.
 """)
+
+    @property
+    def source_address(self):
+        """If link is a sender, source is determined by the local value, else
+        use the remote
+        """
+        if self._pn_link.is_sender:
+            return self._pn_link.source.address
+        else:
+            return self._pn_link.remote_source.address
+
+    @property
+    def target_address(self):
+        """If link is a receiver, target is determined by the local value, else
+        use the remote
+        """
+        if self._pn_link.is_receiver:
+            return self._pn_link.target.address
+        else:
+            return self._pn_link.remote_target.address
 
     def _destroy(self):
         self._user_context = None
