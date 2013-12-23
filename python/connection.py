@@ -319,10 +319,6 @@ Associate an arbitrary user object with this Connection.
             self._pn_transport.close_head()
         self._write_done = True
 
-    @property
-    def closed(self):
-        return self._write_done and self._read_done
-
     def create_sender(self, source_address, target_address=None,
                       eventHandler=None, name=None, properties={}):
         """Factory for Sender links"""
@@ -403,18 +399,29 @@ Associate an arbitrary user object with this Connection.
             # @todo support reason for close
             pn_link.close()
 
-    def destroy(self, error=None):
+    def close(self, error=None):
         """
         """
         for l in self._sender_links.itervalues():
-            l.destroy(error)
-        self._sender_links = {}
+            l.close(error)
         for l in self._receiver_links.itervalues():
-            l.destroy(error)
-        self._receiver_links = {}
+            l.close(error)
         self._pn_session.close()
-        self._pn_session = None
         self._pn_connection.close()
+
+    @property
+    def closed(self):
+        #return self._write_done and self._read_done
+        state = self._pn_connection.state
+        return state == (proton.Endpoint.LOCAL_CLOSED
+                         | proton.Endpoint.REMOTE_CLOSED)
+
+    def destroy(self):
+        """
+        """
+        self._pending_links.clear()
+        self._sender_links.clear()
+        self._receiver_links.clear()
         self._pn_connection = None
         self._pn_transport = None
         self._user_context = None

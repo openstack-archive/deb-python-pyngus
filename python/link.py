@@ -91,7 +91,16 @@ Associate an arbitrary application object with this link.
         else:
             return self._pn_link.remote_target.address
 
-    def _destroy(self):
+    def close(self, error=None):
+        self._pn_link.close()
+
+    @property
+    def closed(self):
+        state = self._pn_link.state
+        return state == (proton.Endpoint.LOCAL_CLOSED
+                         | proton.Endpoint.REMOTE_CLOSED)
+
+    def destroy(self):
         self._user_context = None
         self._pn_link.context = None
         self._pn_link = None
@@ -156,8 +165,7 @@ class SenderLink(_Link):
     def credit(self):
         return self._pn_link.credit()
 
-    def destroy(self, error=None):
-        self._pn_link.close()
+    def close(self, error=None):
         while self._pending_sends:
             i = self._pending_sends.popleft()
             cb = i[1]
@@ -168,10 +176,13 @@ class SenderLink(_Link):
             cb = i[1]
             handle = i[2]
             cb(self, handle, self.ABORTED, error)
-        self._pending_acks = {}
+        self._pending_acks.clear()
+        super(SenderLink, self).close()
+
+    def destroy(self):
         self._connection._remove_sender(self._name)
         self._connection = None
-        super(SenderLink, self)._destroy()
+        super(SenderLink, self).destroy()
 
     def _delivery_updated(self, delivery):
         # A delivery has changed state.
@@ -267,10 +278,9 @@ class ReceiverLink(_Link):
         self._settle_delivery(handle, proton.Delivery.MODIFIED)
 
     def destroy(self, error=None):
-        self._pn_link.close()
         self._connection._remove_receiver(self._name)
         self._connection = None
-        super(ReceiverLink, self)._destroy()
+        super(ReceiverLink, self).destroy()
 
     def _delivery_updated(self, delivery):
         # a receive delivery changed state

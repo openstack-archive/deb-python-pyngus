@@ -112,6 +112,13 @@ class MyConnection(fusion.ConnectionEventHandler):
 
         self.connection.process(time.time())
 
+    def close(self, error=None):
+        self.connection.close(error)
+
+    @property
+    def closed(self):
+        return self.connection.closed
+
     def destroy(self, error=None):
         self.connection.user_context = None
         self.connection.destroy()
@@ -169,6 +176,10 @@ class MyCaller(fusion.SenderEventHandler,
 
     def done(self):
         return self._send_completed and self._response_received
+
+    def close(self):
+        self._sender.close(None)
+        self._receiver.close(None)
 
     def destroy(self):
         if self._sender:
@@ -300,8 +311,14 @@ def main(argv=None):
 
     print "DONE"
 
+    my_caller.close()
+    my_connection.close()
+    while not my_connection.closed:
+        my_connection.process()
+
+    print "CLOSED"
     my_caller.destroy()
-    my_connection.process()
+    my_connection.destroy()
 
     return 0
 
