@@ -188,8 +188,10 @@ class MyReceiverLink(fusion.ReceiverEventHandler):
                 print("  to address=%s" % str(message.address))
                 print("  replying to=%s" % str(reply_to))
                 link = my_sender.sender_link
-                link.send( response, my_sender,
-                           message, time.time() + 5.0)
+                # @todo send timeouts
+                #link.send( response, my_sender,
+                #           message, time.time() + 5.0)
+                link.send(response, my_sender, message)
 
                 self._link.message_accepted(handle)
 

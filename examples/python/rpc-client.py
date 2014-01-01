@@ -200,7 +200,9 @@ class MyCaller(fusion.SenderEventHandler,
         msg.correlation_id = 5  # whatever...
 
         print("sending RPC call request: %s" % str(self._method))
-        self._sender.send(msg, self, None, time.time() + 10)
+        # @todo send timeout self._sender.send(msg, self, None, time.time() +
+        # 10)
+        self._sender.send(msg, self)
 
     # SenderEventHandler callbacks:
 

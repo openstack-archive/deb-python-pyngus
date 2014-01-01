@@ -148,6 +148,8 @@ class SenderLink(_Link):
         """
         self._pending_sends.append( (message, delivery_callback, handle,
                                      deadline) )
+        # @todo deadline not supported yet
+        assert not deadline, "send timeout not supported yet!"
         if deadline and (self._next_deadline == 0 or
                          self._next_deadline > deadline):
             self._next_deadline = deadline
