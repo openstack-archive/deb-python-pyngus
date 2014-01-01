@@ -18,10 +18,13 @@
 #
 import optparse, sys, time, uuid
 import re, socket, select, errno
+import logging
 
 from proton import Message
 import fusion
 
+LOG = logging.getLogger()
+LOG.addHandler(logging.StreamHandler())
 
 """
 This module implements a simple RPC client.  The client sends a 'method call'
@@ -56,9 +59,9 @@ class MyConnection(fusion.ConnectionEventHandler):
             now = time.time()
             timeout = 0 if deadline <= now else deadline - now
 
-        print("select start (t=%s)" % str(timeout))
+        LOG.debug("select() start (t=%s)", str(timeout))
         readable,writable,ignore = select.select(readfd,writefd,[],timeout)
-        print("select return")
+        LOG.debug("select() returned")
 
         if readable:
             count = self.connection.needs_input
@@ -130,10 +133,10 @@ class MyConnection(fusion.ConnectionEventHandler):
 
     def connection_active(self, connection):
         """connection handshake completed"""
-        print "APP: CONN ACTIVE"
+        LOG.debug("Connection active callback")
 
     def connection_closed(self, connection, reason):
-        print "APP: CONN CLOSED"
+        LOG.debug("Connection closed callback")
 
     def sender_requested(self, connection, link_handle,
                          requested_source, properties={}):
@@ -148,8 +151,7 @@ class MyConnection(fusion.ConnectionEventHandler):
         assert False, "Not expected"
 
     def sasl_done(self, connection, result):
-        print "APP: SASL DONE"
-        print result
+        LOG.debug("SASL done, result=%s", str(result))
 
 
 class MyCaller(fusion.SenderEventHandler,
@@ -197,12 +199,13 @@ class MyCaller(fusion.SenderEventHandler,
         msg.body = self._method
         msg.correlation_id = 5  # whatever...
 
+        print("sending RPC call request: %s" % str(self._method))
         self._sender.send(msg, self, None, time.time() + 10)
 
     # SenderEventHandler callbacks:
 
     def sender_active(self, sender_link):
-        print "APP: SENDER ACTIVE"
+        LOG.debug("Sender active callback")
         assert sender_link is self._sender
         self._to = sender_link.target_address
         assert self._to, "Expected a target address!!!"
@@ -210,20 +213,20 @@ class MyCaller(fusion.SenderEventHandler,
             self._send_request()
 
     def sender_closed(self, sender_link, error):
-        print "APP: SENDER CLOSED"
+        LOG.debug("Sender closed callback")
         assert sender_link is self._sender
         self._send_completed = True
 
     # send complete callback:
 
     def __call__(self, sender_link, handle, status, error):
-        print "APP: MESSAGE SENT CALLBACK %s" % status
+        LOG.debug("Sender message sent callback, status=%s", str(status))
         self._send_completed = True
 
     # ReceiverEventHandler callbacks:
 
     def receiver_active(self, receiver_link):
-        print "APP: RECEIVER ACTIVE"
+        LOG.debug("Receiver active callback")
         assert receiver_link is self._receiver
         self._reply_to = receiver_link.source_address
         assert self._reply_to, "Expected a source address!!!"
@@ -231,21 +234,16 @@ class MyCaller(fusion.SenderEventHandler,
             self._send_request()
 
     def receiver_closed(self, receiver_link, error):
-        print "APP: RECEIVER CLOSED"
+        LOG.debug("Receiver closed callback")
         assert receiver_link is self._receiver
         self._response_received = True
 
     def message_received(self, receiver_link, message, handle):
-        print "APP: MESSAGE RECEIVED"
+        LOG.debug("Receiver message received callback")
         assert receiver_link is self._receiver
-        print "Response received: %s" % str(message)
+        print("RPC call response received: %s" % str(message))
         receiver_link.message_accepted(handle)
         self._response_received = True
-
-        #self._sender.destroy()
-        #del self._sender
-        #self._receiver.destroy()
-        #del self._receiver
 
 
 def main(argv=None):
@@ -257,6 +255,10 @@ def main(argv=None):
                       help="The address of the server [amqp://0.0.0.0:5672]")
     parser.add_option("-t", "--timeout", dest="timeout", type="int",
                       help="timeout used when waiting for reply, in seconds")
+    parser.add_option("--trace", dest="trace", action="store_true",
+                      help="enable protocol tracing")
+    parser.add_option("--debug", dest="debug", action="store_true",
+                      help="enable debug logging")
 
     opts, method_info = parser.parse_args(args=argv)
     if not method_info:
@@ -264,10 +266,13 @@ def main(argv=None):
     if len(method_info) % 2 != 1:
         assert False, "An even number of method arguments are required!"
 
+    if opts.debug:
+        LOG.setLevel(logging.DEBUG)
+
     # Create a socket connection to the server
     #
     regex = re.compile(r"^amqp://([a-zA-Z0-9.]+)(:([\d]+))?$")
-    print("Connecting to %s" % opts.server)
+    LOG.debug("Connecting to %s", opts.server)
     x = regex.match(opts.server)
     if not x:
         raise Exception("Bad address syntax: %s" % opts.server)
@@ -288,8 +293,11 @@ def main(argv=None):
     # create AMQP container, connection, sender and receiver
     #
     container = fusion.Container(uuid.uuid4().hex)
+    conn_properties = {}
+    if opts.trace:
+        conn_properties["trace"] = True
     my_connection = MyConnection( "to-server", my_socket,
-                                  container, {})
+                                  container, conn_properties)
 
     # @todo: need better sasl + server
     my_connection.connection.sasl.mechanisms("ANONYMOUS")
@@ -309,14 +317,14 @@ def main(argv=None):
     while not my_caller.done():
         my_connection.process()
 
-    print "DONE"
+    LOG.debug("RPC completed, closing connections")
 
     my_caller.close()
     my_connection.close()
     while not my_connection.closed:
         my_connection.process()
 
-    print "CLOSED"
+    LOG.debug("Connection closed")
     my_caller.destroy()
     my_connection.destroy()
 

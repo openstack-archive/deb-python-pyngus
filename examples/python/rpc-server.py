@@ -18,10 +18,13 @@
 #
 import optparse, sys, time, uuid
 import re, socket, select, errno
+import logging
 
 from proton import Message
 import fusion
 
+LOG = logging.getLogger()
+LOG.addHandler(logging.StreamHandler())
 
 """
 This module implements a simple RPC server that can be used with the example
@@ -59,14 +62,14 @@ class SocketConnection(fusion.ConnectionEventHandler):
 
     # ConnectionEventHandler callbacks:
     def connection_active(self, connection):
-        print "APP: CONN ACTIVE"
+        LOG.debug("Connection active callback")
 
     def connection_closed(self, connection, reason):
-        print "APP: CONN CLOSED"
+        LOG.debug("Connection closed callback")
 
     def sender_requested(self, connection, link_handle,
                          requested_source, properties):
-        print "APP: SENDER LINK REQUESTED"
+        LOG.debug("sender requested callback")
         global sender_links
 
         name = uuid.uuid4().hex
@@ -80,11 +83,11 @@ class SocketConnection(fusion.ConnectionEventHandler):
         sender = MySenderLink(connection, link_handle, requested_source,
                               name, {})
         sender_links[requested_source] = sender
-        print "APP: NEW SENDER LINK CREATED, source=%s" % requested_source
+        print("New Sender link created, source=%s" % requested_source)
 
     def receiver_requested(self, connection, link_handle,
                            requested_target, properties):
-        print "APP: RECEIVER LINK REQUESTED"
+        LOG.debug("receiver requested callback")
         # allow for requested_source address if it doesn't conflict with an
         # existing address
         global receiver_links
@@ -99,17 +102,16 @@ class SocketConnection(fusion.ConnectionEventHandler):
                                    requested_target, name,
                                   {"capacity": 3})
         receiver_links[requested_target] = receiver
-        print "APP: NEW RECEIVER LINK CREATED, target=%s" % requested_target
+        print("New Receiver link created, target=%s" % requested_target)
 
     # SASL callbacks:
 
     def sasl_step(self, connection, pn_sasl):
-        print "SASL STEP"
+        LOG.debug("SASL step callback")
         pn_sasl.done(pn_sasl.OK)
 
     def sasl_done(self, connection, result):
-        print "APP: SASL DONE"
-        print result
+        LOG.debug("SASL done callback, result=%s", str(result))
 
 
 class MySenderLink(fusion.SenderEventHandler):
@@ -127,15 +129,15 @@ class MySenderLink(fusion.SenderEventHandler):
     # SenderEventHandler callbacks:
 
     def sender_active(self, sender_link):
-        print "APP: SENDER ACTIVE"
+        LOG.debug("sender active callback")
 
     def sender_closed(self, sender_link, error):
-        print "APP: SENDER CLOSED"
+        LOG.debug("sender closed callback")
 
     # 'message sent' callback:
 
     def __call__(self, sender, handle, status, error=None):
-        print "APP: MESSAGE SENT CALLBACK %s" % status
+        LOG.debug("message sent callback, status=%s", str(status))
 
 
 class MyReceiverLink(fusion.ReceiverEventHandler):
@@ -151,19 +153,21 @@ class MyReceiverLink(fusion.ReceiverEventHandler):
 
     # ReceiverEventHandler callbacks:
     def receiver_active(self, receiver_link):
-        print "APP: RECEIVER ACTIVE"
+        LOG.debug("receiver active callback")
 
     def receiver_closed(self, receiver_link, error):
-        print "APP: RECEIVER CLOSED"
+        LOG.debug("receiver closed callback")
 
     def message_received(self, receiver_link, message, handle):
-        print "APP: MESSAGE RECEIVED"
+        LOG.debug("message received callback")
 
         global sender_links
 
         # extract to reply-to, correlation id
         reply_to = message.reply_to
         if not reply_to or reply_to not in sender_links:
+            LOG.error("sender for reply-to not found, reply-to=%s",
+                      str(reply_to))
             self._link.message_rejected(handle, "Bad reply-to address")
         else:
             my_sender = sender_links[reply_to]
@@ -171,15 +175,18 @@ class MyReceiverLink(fusion.ReceiverEventHandler):
             method_map = message.body
             if (not isinstance(method_map, dict) or
                 'method' not in method_map):
+                LOG.error("no method given, map=%s", str(method_map))
                 self._link.message_rejected(handle, "Bad format")
             else:
-                print "Echoing back message map"
                 response = Message()
                 response.address = reply_to
                 response.subject = message.subject
                 response.correlation_id = correlation_id
                 response.body = {"response": method_map}
 
+                print("RPC request received, msg=%s" % str(method_map))
+                print("  to address=%s" % str(message.address))
+                print("  replying to=%s" % str(reply_to))
                 link = my_sender.sender_link
                 link.send( response, my_sender,
                            message, time.time() + 5.0)
@@ -187,6 +194,7 @@ class MyReceiverLink(fusion.ReceiverEventHandler):
                 self._link.message_accepted(handle)
 
         if self._link.capacity == 0:
+            LOG.debug("increasing credit...")
             self._link.add_capacity( 5 )
 
 
@@ -198,13 +206,19 @@ def main(argv=None):
                       default="amqp://0.0.0.0:5672",
                       help="""The socket address this server will listen on
  [amqp://0.0.0.0:5672]""")
+    parser.add_option("--trace", dest="trace", action="store_true",
+                      help="enable protocol tracing")
+    parser.add_option("--debug", dest="debug", action="store_true",
+                      help="enable debug logging")
 
     opts, arguments = parser.parse_args(args=argv)
+    if opts.debug:
+        LOG.setLevel(logging.DEBUG)
 
     # Create a socket for inbound connections
     #
     regex = re.compile(r"^amqp://([a-zA-Z0-9.]+)(:([\d]+))?$")
-    print("Listening on %s" % opts.address)
+    LOG.debug("Listening on %s", opts.address)
     x = regex.match(opts.address)
     if not x:
         raise Exception("Bad address syntax: %s" % opts.address)
@@ -254,9 +268,9 @@ def main(argv=None):
             now = time.time()
             timeout = 0 if deadline <= now else deadline - now
 
-        print("select start (t=%s)" % str(timeout))
+        LOG.debug("select() start (t=%s)", str(timeout))
         readable,writable,ignore = select.select(readfd,writefd,[],timeout)
-        print("select return")
+        LOG.debug("select() returned")
 
         for r in readable:
             if r is my_socket:
@@ -264,9 +278,13 @@ def main(argv=None):
                 client_socket, client_address = my_socket.accept()
                 name = uuid.uuid4().hex
                 assert name not in socket_connections
+                conn_properties = {}
+                if opts.trace:
+                    conn_properties["trace"] = True
                 socket_connections[name] = SocketConnection(name,
                                                             client_socket,
-                                                            container, {})
+                                                            container,
+                                                            conn_properties)
             else:
                 assert isinstance(r, SocketConnection)
                 count = r.connection.needs_input

@@ -16,8 +16,10 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-import heapq
+import heapq, logging
 from connection import Connection
+
+LOG = logging.getLogger(__name__)
 
 #
 # An implementation of an AMQP 1.0 container

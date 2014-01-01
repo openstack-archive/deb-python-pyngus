@@ -17,8 +17,12 @@
 # under the License.
 #
 
+import logging
+
 import proton
 from link import SenderLink, ReceiverLink
+
+LOG = logging.getLogger(__name__)
 
 #
 # An implementation of an AMQP 1.0 Connection
@@ -29,29 +33,29 @@ class ConnectionEventHandler(object):
     """
     def connection_active(self, connection):
         """connection handshake completed"""
-        pass
+        LOG.debug("connection_active (ignored)")
 
     def connection_closed(self, connection, reason):
-        pass
+        LOG.debug("connection_closed (ignored)")
 
     def sender_requested(self, connection, link_handle,
                          requested_source, properties={}):
         # call accept_sender to accept new link,
         # reject_sender to reject it.
-        pass
+        LOG.debug("sender_requested (ignored)")
 
     def receiver_requested(self, connection, link_handle,
                            requested_target, properties={}):
         # call accept_sender to accept new link,
         # reject_sender to reject it.
-        pass
+        LOG.debug("receiver_requested (ignored)")
 
     # @todo cleaner sasl support, esp. server side
     def sasl_step(self, connection, pn_sasl):
-        pass
+        LOG.debug("sasl_step (ignored)")
 
     def sasl_done(self, connection, result):
-        pass
+        LOG.debug("sasl_done (ignored)")
 
 
 class Connection(object):
@@ -72,8 +76,8 @@ class Connection(object):
 
         self._pn_transport = proton.Transport()
         self._pn_transport.bind(self._pn_connection)
-        # @todo - logging??
-        self._pn_transport.trace(proton.Transport.TRACE_FRM)
+        if properties.get("trace"):
+            self._pn_transport.trace(proton.Transport.TRACE_FRM)
         self._handler = eventHandler
 
         self._sender_links = {}
@@ -144,7 +148,7 @@ Associate an arbitrary user object with this Connection.
         if self._pn_sasl:
             if self._pn_sasl.state not in (proton.SASL.STATE_PASS,
                                         proton.SASL.STATE_FAIL):
-                print("SASL in progress. State=%s" % self._pn_sasl.state)
+                LOG.debug("SASL in progress. State=%s", str(self._pn_sasl.state))
                 self._handler.sasl_step(self, self._pn_sasl)
                 return
 
@@ -161,13 +165,13 @@ Associate an arbitrary user object with this Connection.
 
         ssn = self._pn_connection.session_head(self._NEED_INIT)
         while ssn:
-            print "Opening remotely initiated session"
+            LOG.debug("Opening remotely initiated session")
             ssn.open()
             ssn = ssn.next(self._NEED_INIT)
 
         link = self._pn_connection.link_head(self._NEED_INIT)
         while link:
-            print "Remotely initiated Link needs init"
+            LOG.debug("Remotely initiated Link needs init")
             index = self._pending_link_id
             self._pending_link_id += 1
             assert index not in self._pending_links
@@ -209,9 +213,8 @@ Associate an arbitrary user object with this Connection.
 
         delivery = self._pn_connection.work_head
         while delivery:
-            print "Delivery updated!"
+            LOG.debug("Delivery updated!")
             if delivery.link.context:
-                print "Delivery context set!"
                 if delivery.link.is_sender:
                     sender_link = delivery.link.context
                     sender_link._delivery_updated(delivery)
@@ -224,7 +227,7 @@ Associate an arbitrary user object with this Connection.
 
         link = self._pn_connection.link_head(self._NEED_CLOSE)
         while link:
-            print "Link closed remotely"
+            LOG.debug("Link closed remotely")
             link.close()
             # @todo: error reporting
             if link.context:
@@ -239,12 +242,12 @@ Associate an arbitrary user object with this Connection.
 
         ssn = self._pn_connection.session_head(self._NEED_CLOSE)
         while ssn:
-            print "Session closed remotely"
+            LOG.debug("Session closed remotely")
             ssn.close()
             ssn = ssn.next(self._NEED_CLOSE)
 
         if self._pn_connection.state == (self._NEED_CLOSE):
-            print "Connection remotely closed"
+            LOG.debug("Connection remotely closed")
             # @todo - think about handling this wrt links!
             cond = self._pn_connection.remote_condition
             self._pn_connection.close()

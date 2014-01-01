@@ -17,8 +17,10 @@
 # under the License.
 #
 
-import collections
+import collections, logging
 import proton
+
+LOG = logging.getLogger(__name__)
 
 class _Link(object):
     """Generic Link base class"""
@@ -32,7 +34,6 @@ class _Link(object):
         self._pn_link = pn_link
         # @todo: raise jira to add 'context' to api
         pn_link.context = self
-        print "Setting context in link %s" % str(pn_link)
 
         if target_address is None:
             assert pn_link.is_sender, "Dynamic target not allowed"
@@ -110,9 +111,10 @@ class SenderEventHandler(object):
     """
     """
     def sender_active(self, sender_link):
-        pass
+        LOG.debug("sender_active (ignored)")
+
     def sender_closed(self, sender_link, error=None):
-        pass
+        LOG.debug("sender_closed (ignored)")
 
 
 class SenderLink(_Link):
@@ -193,11 +195,10 @@ class SenderLink(_Link):
             proton.Disposition.RELEASED: SenderLink.RELEASED,
             proton.Disposition.MODIFIED: SenderLink.MODIFIED,
             }
-        print "Sender delivery updated"
 
         if delivery.tag in self._pending_acks:
             if delivery.settled:  # remote has finished
-                print "deliver updated, remote state=%s" % str(delivery.remote_state)
+                LOG.debug("delivery updated, remote state=%s", str(delivery.remote_state))
 
                 send_req = self._pending_acks.pop(delivery.tag)
                 state = _disposition_state_map.get(delivery.remote_state,
@@ -234,13 +235,13 @@ class SenderLink(_Link):
 class ReceiverEventHandler(object):
 
     def receiver_active(self, receiver_link):
-        pass
+        LOG.debug("receiver_active (ignored)")
 
     def receiver_closed(self, receiver_link, error=None):
-        pass
+        LOG.debug("receiver_closed (ignored)")
 
     def message_received(self, receiver_link, message, handle):
-        pass
+        LOG.debug("message_received (ignored)")
 
 
 class ReceiverLink(_Link):
@@ -285,7 +286,7 @@ class ReceiverLink(_Link):
     def _delivery_updated(self, delivery):
         # a receive delivery changed state
         # @todo: multi-frame message transfer
-        print "Receive delivery updated"
+        LOG.debug("Receive delivery updated")
         if delivery.readable:
             data = self._pn_link.recv(delivery.pending)
             msg = proton.Message()
