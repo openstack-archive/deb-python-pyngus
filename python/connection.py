@@ -246,7 +246,7 @@ Associate an arbitrary user object with this Connection.
         if self._pn_connection.state == (self._NEED_CLOSE):
             print "Connection remotely closed"
             # @todo - think about handling this wrt links!
-            cond = self._pn_connection.remote_condition()
+            cond = self._pn_connection.remote_condition
             self._pn_connection.close()
             self._handler.connection_closed(self, cond)
 
