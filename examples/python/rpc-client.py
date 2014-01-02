@@ -64,56 +64,12 @@ class MyConnection(fusion.ConnectionEventHandler):
         LOG.debug("select() returned")
 
         if readable:
-            count = self.connection.needs_input
-            if count > 0:
-                try:
-                    sock_data = self.socket.recv(count)
-                    if sock_data:
-                        self.connection.process_input( sock_data )
-                    else:
-                        # closed?
-                        self.connection.close_input()
-                except socket.timeout, e:
-                    raise  # I don't expect this
-                except socket.error, e:
-                    err = e.args[0]
-                    # ignore non-fatal errors
-                    if (err != errno.EAGAIN and
-                        err != errno.EWOULDBLOCK and
-                        err != errno.EINTR):
-                        # otherwise, unrecoverable:
-                        self.connection.close_input()
-                        raise
-                except:  # beats me...
-                    self.connection.close_input()
-                    raise
-
-        if writable:
-            data = self.connection.output_data()
-            if data:
-                try:
-                    rc = self.socket.send(data)
-                    if rc > 0:
-                        self.connection.output_written(rc)
-                    else:
-                        # else socket closed
-                        self.connection.close_output()
-                except socket.timeout, e:
-                    raise # I don't expect this
-                except socket.error, e:
-                    err = e.args[0]
-                    # ignore non-fatal errors
-                    if (err != errno.EAGAIN and
-                        err != errno.EWOULDBLOCK and
-                        err != errno.EINTR):
-                        # otherwise, unrecoverable
-                        self.connection.close_output()
-                        raise
-                except:  # beats me...
-                    self.connection.close_output()
-                    raise
-
+            rc = fusion.read_socket_input(self.connection,
+                                          self.socket)
         self.connection.process(time.time())
+        if writable:
+            rc = fusion.write_socket_output(self.connection,
+                                            self.socket)
 
     def close(self, error=None):
         self.connection.close(error)

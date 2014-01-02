@@ -19,3 +19,4 @@
 from fusion.container import *
 from fusion.connection import *
 from fusion.link import *
+from fusion.sockets import *

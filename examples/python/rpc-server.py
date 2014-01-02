@@ -60,7 +60,22 @@ class SocketConnection(fusion.ConnectionEventHandler):
         """
         return self.socket.fileno()
 
+    def process_input(self):
+        """Called when socket is read-ready"""
+        rc = fusion.read_socket_input(self.connection,
+                                      self.socket)
+        self.connection.process(time.time())
+        return rc
+
+    def send_output(self):
+        """Called when socket is write-ready"""
+        rc = fusion.write_socket_output(self.connection,
+                                        self.socket)
+        self.connection.process(time.time())
+        return rc
+
     # ConnectionEventHandler callbacks:
+
     def connection_active(self, connection):
         LOG.debug("Connection active callback")
 
@@ -289,30 +304,7 @@ def main(argv=None):
                                                             conn_properties)
             else:
                 assert isinstance(r, SocketConnection)
-                count = r.connection.needs_input
-                if count > 0:
-                    try:
-                        sock_data = r.socket.recv(count)
-                        if sock_data:
-                            r.connection.process_input( sock_data )
-                        else:
-                            # closed?
-                            r.connection.close_input()
-                    except socket.timeout, e:
-                        raise  # I don't expect this
-                    except socket.error, e:
-                        err = e.args[0]
-                        # ignore non-fatal errors
-                        if (err != errno.EAGAIN and
-                            err != errno.EWOULDBLOCK and
-                            err != errno.EINTR):
-                            # otherwise, unrecoverable:
-                            r.connection.close_input()
-                            raise
-                    except:  # beats me...
-                        r.connection.close_input()
-                        raise
-                    r.connection.process(time.time())
+                rc = r.process_input()
 
         for t in timers:
             now = time.time()
@@ -322,30 +314,7 @@ def main(argv=None):
 
         for w in writable:
             assert isinstance(w, SocketConnection)
-            data = w.connection.output_data()
-            if data:
-                try:
-                    rc = w.socket.send(data)
-                    if rc > 0:
-                        w.connection.output_written(rc)
-                    else:
-                        # else socket closed
-                        w.connection.close_output()
-                except socket.timeout, e:
-                    raise # I don't expect this
-                except socket.error, e:
-                    err = e.args[0]
-                    # ignore non-fatal errors
-                    if (err != errno.EAGAIN and
-                        err != errno.EWOULDBLOCK and
-                        err != errno.EINTR):
-                        # otherwise, unrecoverable
-                        w.connection.close_output()
-                        raise
-                except:  # beats me...
-                    w.connection.close_output()
-                    raise
-                w.connection.process(time.time())
+            rc = w.send_output()
 
     return 0
 
