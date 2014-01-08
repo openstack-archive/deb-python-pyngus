@@ -44,6 +44,11 @@ class MyConnection(fusion.ConnectionEventHandler):
                                                       properties)
         self.connection.user_context = self
 
+        self.connection.sasl.mechanisms("ANONYMOUS")
+        self.connection.sasl.client()
+
+        self.connection.open()
+
     def process(self):
         """ Do connection-based processing (I/O and timers) """
         readfd = []
@@ -131,6 +136,10 @@ class MyCaller(fusion.SenderEventHandler,
 
         self._send_completed = False
         self._response_received = False
+
+        self._sender.open()
+        self._receiver.add_capacity(1)
+        self._receiver.open()
 
     def done(self):
         return self._send_completed and self._response_received
@@ -256,10 +265,6 @@ def main(argv=None):
         conn_properties["trace"] = True
     my_connection = MyConnection( "to-server", my_socket,
                                   container, conn_properties)
-
-    # @todo: need better sasl + server
-    my_connection.connection.sasl.mechanisms("ANONYMOUS")
-    my_connection.connection.sasl.client()
 
     # Create the RPC caller
     method = {'method': method_info[0],

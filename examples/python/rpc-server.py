@@ -54,6 +54,7 @@ class SocketConnection(fusion.ConnectionEventHandler):
         self.connection.user_context = self
         self.connection.sasl.mechanisms("ANONYMOUS")
         self.connection.sasl.server()
+        self.connection.open()
 
     def fileno(self):
         """Allows use of a SocketConnection in a select() call.
@@ -114,8 +115,7 @@ class SocketConnection(fusion.ConnectionEventHandler):
             assert requested_target not in receiver_links
 
         receiver = MyReceiverLink(connection, link_handle,
-                                   requested_target, name,
-                                  {"capacity": 3})
+                                  requested_target, name)
         receiver_links[requested_target] = receiver
         print("New Receiver link created, target=%s" % requested_target)
 
@@ -140,6 +140,7 @@ class MySenderLink(fusion.SenderEventHandler):
                                                     self,
                                                     name,
                                                     properties)
+        self.sender_link.open()
 
     # SenderEventHandler callbacks:
 
@@ -159,16 +160,18 @@ class MyReceiverLink(fusion.ReceiverEventHandler):
     """
     """
     def __init__(self, connection, link_handle, target_address,
-                 name, properties):
+                 name, properties={}):
         self._link = connection.accept_receiver(link_handle,
                                                 target_address,
                                                 self,
                                                 name,
                                                 properties)
+        self._link.open()
 
     # ReceiverEventHandler callbacks:
     def receiver_active(self, receiver_link):
         LOG.debug("receiver active callback")
+        self._link.add_capacity(5)
 
     def receiver_closed(self, receiver_link, error):
         LOG.debug("receiver closed callback")

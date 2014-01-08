@@ -69,6 +69,8 @@ class Connection(object):
         """
         self._name = name
         self._container = container
+        self._handler = eventHandler
+
         self._pn_connection = proton.Connection()
         self._pn_connection.container = container.name
         if 'hostname' in properties:
@@ -78,7 +80,6 @@ class Connection(object):
         self._pn_transport.bind(self._pn_connection)
         if properties.get("trace"):
             self._pn_transport.trace(proton.Transport.TRACE_FRM)
-        self._handler = eventHandler
 
         self._sender_links = {}
         self._receiver_links = {}
@@ -93,10 +94,6 @@ class Connection(object):
         # @todo sasl configuration and handling
         self._pn_sasl = None
         self._sasl_done = False
-
-        self._pn_connection.open()
-        self._pn_session = self._pn_connection.session()
-        self._pn_session.open()
 
     @property
     def container(self):
@@ -402,6 +399,13 @@ Associate an arbitrary user object with this Connection.
             # @todo support reason for close
             pn_link.close()
 
+    def open(self):
+        """
+        """
+        self._pn_connection.open()
+        self._pn_session = self._pn_connection.session()
+        self._pn_session.open()
+
     def close(self, error=None):
         """
         """
@@ -425,6 +429,8 @@ Associate an arbitrary user object with this Connection.
         self._pending_links.clear()
         self._sender_links.clear()
         self._receiver_links.clear()
+        self._container._remove_connection(self._name)
+        self._container = None
         self._pn_connection = None
         self._pn_transport = None
         self._user_context = None

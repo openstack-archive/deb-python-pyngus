@@ -61,6 +61,11 @@ class _Link(object):
         self._user_context = None
         self._active = False
 
+    def open(self):
+        """
+        """
+        self._pn_link.open()
+
     def _get_user_context(self):
         return self._user_context
 
@@ -140,8 +145,6 @@ class SenderLink(_Link):
         self._next_tag = 0
 
         # @todo - think about send-settle-mode configuration
-
-        self._pn_link.open()
 
     def send(self, message, delivery_callback=None, handle=None, deadline=None):
         """
@@ -256,10 +259,6 @@ class ReceiverLink(_Link):
         self._unsettled_deliveries = {} # indexed by handle
 
         # @todo - think about receiver-settle-mode configuration
-
-        credit = properties.get("capacity", 10)
-        self._pn_link.flow(credit)
-        self._pn_link.open()
 
     def capacity(self):
         return self._pn_link.credit()
