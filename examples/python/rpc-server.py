@@ -38,9 +38,16 @@ map sent in the request.
 """
 
 
-# Maps of outgoing and incoming links
-sender_links = {}  # indexed by Source address
-receiver_links = {} # indexed by Target address
+# Maps of outgoing and incoming links.  These are indexed by
+# (remote-container-name, link-name)
+sender_links = {}
+receiver_links = {}
+
+# Map reply-to address to the proper sending link (indexed by address)
+reply_senders = {}
+
+# database of all active SocketConnections
+socket_connections = {} # indexed by name
 
 
 class SocketConnection(fusion.ConnectionEventHandler):
@@ -55,6 +62,16 @@ class SocketConnection(fusion.ConnectionEventHandler):
         self.connection.sasl.mechanisms("ANONYMOUS")
         self.connection.sasl.server()
         self.connection.open()
+        self.done = False
+
+    def destroy(self):
+        self.done = True
+        if self.connection:
+            self.connection.destroy()
+            self.connection = None
+        if self.socket:
+            self.socket.close()
+            self.socket = None
 
     def fileno(self):
         """Allows use of a SocketConnection in a select() call.
@@ -80,43 +97,58 @@ class SocketConnection(fusion.ConnectionEventHandler):
     def connection_active(self, connection):
         LOG.debug("Connection active callback")
 
-    def connection_closed(self, connection, reason):
-        LOG.debug("Connection closed callback")
+    def connection_remote_closed(self, connection, reason):
+        LOG.debug("Connection remote closed callback")
+        assert self.connection is connection
+        self.connection.close()
+
+    def connection_closed(self, connection):
+        LOG.debug("connection closed.")
+        # main loop will destroy
+        self.done = True
 
     def sender_requested(self, connection, link_handle,
-                         requested_source, properties):
+                         name, requested_source, properties):
         LOG.debug("sender requested callback")
         global sender_links
+        global reply_senders
 
-        name = uuid.uuid4().hex
+        # reject if name conflict
+        remote_container = connection.remote_container
+        ident = (remote_container, name)
+        if ident in sender_links:
+            connection.reject_sender(link_handle, "link name in use")
+            return
+
         # allow for requested_source address if it doesn't conflict with an
-        # existing address
-        if not requested_source or requested_source in sender_links:
-            requested_source = "/%s/%s" % (connection.container.name,
-                                           name)
-            assert requested_source not in sender_links
+        # existing address, otherwise override
+        if not requested_source or requested_source in reply_senders:
+            requested_source = uuid.uuid4().hex
+            assert requested_source not in reply_senders
 
-        sender = MySenderLink(connection, link_handle, requested_source,
-                              name, {})
-        sender_links[requested_source] = sender
+        sender = MySenderLink(ident, connection, link_handle, requested_source)
+        sender_links[ident] = sender
+        reply_senders[requested_source] = sender
         print("New Sender link created, source=%s" % requested_source)
 
     def receiver_requested(self, connection, link_handle,
-                           requested_target, properties):
+                           name, requested_target, properties):
         LOG.debug("receiver requested callback")
-        # allow for requested_source address if it doesn't conflict with an
-        # existing address
         global receiver_links
 
-        name = uuid.uuid4().hex
-        if not requested_target or requested_target in receiver_links:
-            requested_target = "/%s/%s" % (connection.container.name,
-                                           name)
-            assert requested_target not in receiver_links
+        # reject if name conflict
+        remote_container = connection.remote_container
+        ident = (remote_container, name)
+        if ident in receiver_links:
+            connection.reject_sender(link_handle, "link name in use")
+            return
 
-        receiver = MyReceiverLink(connection, link_handle,
-                                  requested_target, name)
-        receiver_links[requested_target] = receiver
+        # I don't use the target address, but supply one if necessary
+        if not requested_target:
+            requested_target = uuid.uuid4().hex
+
+        receiver = MyReceiverLink(ident, connection, link_handle, requested_target)
+        receiver_links[ident] = receiver
         print("New Receiver link created, target=%s" % requested_target)
 
     # SASL callbacks:
@@ -132,13 +164,14 @@ class SocketConnection(fusion.ConnectionEventHandler):
 class MySenderLink(fusion.SenderEventHandler):
     """
     """
-    def __init__(self, connection, link_handle, source_address,
-                 name, properties):
+    def __init__(self, ident, connection, link_handle,
+                 source_address, properties={}):
 
+        self._ident = ident
+        self._source_address = source_address
         self.sender_link = connection.accept_sender(link_handle,
                                                     source_address,
                                                     self,
-                                                    name,
                                                     properties)
         self.sender_link.open()
 
@@ -147,8 +180,21 @@ class MySenderLink(fusion.SenderEventHandler):
     def sender_active(self, sender_link):
         LOG.debug("sender active callback")
 
-    def sender_closed(self, sender_link, error):
+    def sender_remote_closed(self, sender_link, error):
+        LOG.debug("sender remote closed callback")
+        self.sender_link.close()
+
+    def sender_closed(self, sender_link):
         LOG.debug("sender closed callback")
+        global sender_links
+        global reply_senders
+
+        if self._ident in sender_links:
+            del sender_links[self._ident]
+        if self._source_address in reply_senders:
+            del reply_senders[self._source_address]
+        self.sender_link.destroy()
+        self.sender_link = None
 
     # 'message sent' callback:
 
@@ -159,12 +205,13 @@ class MySenderLink(fusion.SenderEventHandler):
 class MyReceiverLink(fusion.ReceiverEventHandler):
     """
     """
-    def __init__(self, connection, link_handle, target_address,
-                 name, properties={}):
+    def __init__(self, ident, connection, link_handle, target_address,
+                 properties={}):
+        self._ident = ident
+        self._target_address = target_address
         self._link = connection.accept_receiver(link_handle,
                                                 target_address,
                                                 self,
-                                                name,
                                                 properties)
         self._link.open()
 
@@ -173,22 +220,32 @@ class MyReceiverLink(fusion.ReceiverEventHandler):
         LOG.debug("receiver active callback")
         self._link.add_capacity(5)
 
-    def receiver_closed(self, receiver_link, error):
+    def receiver_remote_closed(self, receiver_link, error):
+        LOG.debug("receiver remote closed callback")
+        self._link.close()
+
+    def receiver_closed(self, receiver_link):
         LOG.debug("receiver closed callback")
+        global receiver_links
+
+        if self._ident in receiver_links:
+            del receiver_links[self._ident]
+        self._link.destroy()
+        self._link = None
 
     def message_received(self, receiver_link, message, handle):
         LOG.debug("message received callback")
 
-        global sender_links
+        global reply_senders
 
         # extract to reply-to, correlation id
         reply_to = message.reply_to
-        if not reply_to or reply_to not in sender_links:
+        if not reply_to or reply_to not in reply_senders:
             LOG.error("sender for reply-to not found, reply-to=%s",
                       str(reply_to))
             self._link.message_rejected(handle, "Bad reply-to address")
         else:
-            my_sender = sender_links[reply_to]
+            my_sender = reply_senders[reply_to]
             correlation_id = message.correlation_id
             method_map = message.body
             if (not isinstance(method_map, dict) or
@@ -260,7 +317,7 @@ def main(argv=None):
     # create an AMQP container that will 'provide' the RPC service
     #
     container = fusion.Container("example RPC service")
-    socket_connections = {} # indexed by name (uuid)
+    global socket_connections
 
     while True:
 
@@ -292,6 +349,7 @@ def main(argv=None):
         readable,writable,ignore = select.select(readfd,writefd,[],timeout)
         LOG.debug("select() returned")
 
+        worked = []
         for r in readable:
             if r is my_socket:
                 # new inbound connection request
@@ -305,19 +363,38 @@ def main(argv=None):
                                                             client_socket,
                                                             container,
                                                             conn_properties)
+                LOG.debug("new connection created name=%s" % name)
+
             else:
                 assert isinstance(r, SocketConnection)
                 rc = r.process_input()
+                worked.append(r)
 
         for t in timers:
             now = time.time()
             if t.next_tick > now:
                 break
             t.process(now)
+            sc = t.user_context
+            assert isinstance(sc, SocketConnection)
+            worked.append(sc)
 
         for w in writable:
             assert isinstance(w, SocketConnection)
             rc = w.send_output()
+            worked.append(w)
+
+        # nuke any completed connections:
+        closed = False
+        while worked:
+            sc = worked.pop()
+            if sc.done:
+                if sc.name in socket_connections:
+                    del socket_connections[sc.name]
+                sc.destroy()
+                closed = True
+        if closed:
+            LOG.debug("%d active connections present" % len(socket_connections))
 
     return 0
 

@@ -37,16 +37,34 @@ to a server, and waits for a response.  The method call is a map of the form:
 
 class MyConnection(fusion.ConnectionEventHandler):
 
-    def __init__(self, name, socket, container, properties):
+    def __init__(self, name, container, properties):
         self.name = name
-        self.socket = socket
-        self.connection = container.create_connection(name, self,
-                                                      properties)
-        self.connection.user_context = self
+        self.container = container
+        self.properties = properties
+        self.socket = None
+        self.caller = None
+        self.connection = None
 
+    def reset(self):
+        if self.caller:
+            self.caller.reset()
+        if self.connection:
+            self.connection.user_context = None
+            self.connection.destroy()
+            self.connection = None
+        if self.socket:
+            self.socket.close()
+            self.socket = None
+
+    def connect(self, socket):
+        self.reset()
+        self.socket = socket
+        self.connection = self.container.create_connection(self.name,
+                                                           self,
+                                                           self.properties)
+        self.connection.user_context = self
         self.connection.sasl.mechanisms("ANONYMOUS")
         self.connection.sasl.client()
-
         self.connection.open()
 
     def process(self):
@@ -84,11 +102,20 @@ class MyConnection(fusion.ConnectionEventHandler):
         return self.connection.closed
 
     def destroy(self, error=None):
-        self.connection.user_context = None
-        self.connection.destroy()
-        self.connection = None
-        self.socket.close()
-        self.socket = None
+        self.reset()
+        self.caller.destroy()
+        self.caller = None
+        self.container = None
+
+    def create_caller(self, method_map, source_addr, target_addr,
+                      receiver_properties, sender_properties):
+        """ Caller factory
+        """
+        if self.caller:
+            self.caller.destroy()
+        self.caller = MyCaller(method_map, self, source_addr, target_addr,
+                               receiver_properties, sender_properties)
+        return self.caller
 
     # Connection callbacks:
 
@@ -96,7 +123,10 @@ class MyConnection(fusion.ConnectionEventHandler):
         """connection handshake completed"""
         LOG.debug("Connection active callback")
 
-    def connection_closed(self, connection, reason):
+    def connection_remote_closed(self, connection, reason):
+        LOG.debug("Connection remote closed callback")
+
+    def connection_closed(self, connection):
         LOG.debug("Connection closed callback")
 
     def sender_requested(self, connection, link_handle,
@@ -123,20 +153,48 @@ class MyCaller(fusion.SenderEventHandler,
     def __init__(self, method_map, my_connection,
                  my_source, my_target,
                  receiver_properties, sender_properties):
-        conn = my_connection.connection
-        self._sender = conn.create_sender(my_source, target_address=None,
-                                          eventHandler=self, name=my_source,
-                                          properties=sender_properties)
-        self._receiver = conn.create_receiver(my_target, source_address=None,
-                                              eventHandler=self, name=my_target,
-                                              properties=receiver_properties)
+        #self._name = uuid.uuid4().hex
+        self._my_connection = my_connection
+        self._source_addr = my_source
+        self._target_addr = my_target
+        self._receiver_properties = receiver_properties
+        self._sender_properties = sender_properties
         self._method = method_map
+        self._sender = None
+        self._receiver = None
+        self.reset()
+
+    def reset(self):
+        LOG.debug("Resetting my-caller")
+        # @todo: for now, use new name as engine isn't cleaning up link state properly...
+        self._name = uuid.uuid4().hex
         self._reply_to = None
         self._to = None
-
         self._send_completed = False
         self._response_received = False
 
+        if self._sender:
+            self._sender.destroy()
+            self._sender = None
+
+        if self._receiver:
+            self._receiver.destroy()
+            self._receiver = None
+
+    def connect(self):
+        self.reset()
+        LOG.debug("Connecting my-caller")
+        conn = self._my_connection.connection
+        self._sender = conn.create_sender(self._source_addr, target_address=None,
+                                          eventHandler=self,
+                                          #name=self._source_addr,
+                                          name=self._name,
+                                          properties=self._sender_properties)
+        self._receiver = conn.create_receiver(self._target_addr, source_address=None,
+                                              eventHandler=self,
+                                              #name=self._target_addr,
+                                              name=self._name,
+                                              properties=self._receiver_properties)
         self._sender.open()
         self._receiver.add_capacity(1)
         self._receiver.open()
@@ -145,14 +203,17 @@ class MyCaller(fusion.SenderEventHandler,
         return self._send_completed and self._response_received
 
     def close(self):
+        LOG.debug("Closing my-caller")
         self._sender.close(None)
         self._receiver.close(None)
 
+    def closed(self):
+        return self._sender.closed and self._receiver.closed
+
     def destroy(self):
-        if self._sender:
-            self._sender.destroy()
-        if self._receiver:
-            self._receiver.destroy()
+        LOG.debug("Destroying my-caller")
+        self.reset()
+        self._my_connection = None
 
     def _send_request(self):
         """Send a message containing the RPC method call
@@ -179,7 +240,12 @@ class MyCaller(fusion.SenderEventHandler,
         if self._reply_to:
             self._send_request()
 
-    def sender_closed(self, sender_link, error):
+    def sender_remote_closed(self, sender_link, error):
+        LOG.debug("Sender remote closed callback")
+        assert sender_link is self._sender
+        self._sender.close()
+
+    def sender_closed(self, sender_link):
         LOG.debug("Sender closed callback")
         assert sender_link is self._sender
         self._send_completed = True
@@ -200,7 +266,12 @@ class MyCaller(fusion.SenderEventHandler,
         if self._to:
             self._send_request()
 
-    def receiver_closed(self, receiver_link, error):
+    def receiver_remote_closed(self, receiver_link, error):
+        LOG.debug("receiver remote closed callback")
+        assert receiver_link is self._receiver
+        self._receiver.close()
+
+    def receiver_closed(self, receiver_link):
         LOG.debug("Receiver closed callback")
         assert receiver_link is self._receiver
         self._response_received = True
@@ -222,6 +293,9 @@ def main(argv=None):
                       help="The address of the server [amqp://0.0.0.0:5672]")
     parser.add_option("-t", "--timeout", dest="timeout", type="int",
                       help="timeout used when waiting for reply, in seconds")
+    parser.add_option("--repeat", dest="repeat", type="int",
+                      default=1,
+                      help="Repeat the RPC call REPEAT times (0 == forever)")
     parser.add_option("--trace", dest="trace", action="store_true",
                       help="enable protocol tracing")
     parser.add_option("--debug", dest="debug", action="store_true",
@@ -263,26 +337,42 @@ def main(argv=None):
     conn_properties = {}
     if opts.trace:
         conn_properties["trace"] = True
-    my_connection = MyConnection( "to-server", my_socket,
-                                  container, conn_properties)
+
+    my_connection = MyConnection( "to-server", container, conn_properties)
+
 
     # Create the RPC caller
     method = {'method': method_info[0],
               'args': dict([(method_info[i], method_info[i+1])
                             for i in range(1, len(method_info), 2)])}
-    my_caller = MyCaller( method,
-                          my_connection,
-                          "my-source-address",
-                          "my-target-address",
-                          receiver_properties={"capacity": 1},
-                          sender_properties={})
+    my_caller = my_connection.create_caller( method,
+                                             "my-source-address",
+                                             "my-target-address",
+                                             receiver_properties={},
+                                             sender_properties={})
+    my_connection.connect(my_socket)
 
-    while not my_caller.done():
-        my_connection.process()
+    repeat = 0
+    while opts.repeat == 0 or repeat < opts.repeat:
 
-    LOG.debug("RPC completed, closing connections")
+        LOG.debug("Requesting RPC...")
 
-    my_caller.close()
+        my_caller.connect()
+        while not my_caller.done():
+            my_connection.process()
+
+        LOG.debug("RPC completed!  Closing caller...")
+
+        my_caller.close()
+
+        while not my_caller.closed():
+            my_connection.process()
+
+        LOG.debug("Caller closed cleanly!")
+
+        repeat += 1
+
+    print("Closing connections")
     my_connection.close()
     while not my_connection.closed:
         my_connection.process()

@@ -24,15 +24,17 @@ LOG = logging.getLogger(__name__)
 
 class _Link(object):
     """Generic Link base class"""
-    def __init__(self, connection, pn_link, name,
+    def __init__(self, connection, pn_link,
                  target_address, source_address,
                  handler, properties):
         self._connection = connection
-        self._name = name
+        self._name = pn_link.name
         self._handler = handler
         self._properties = properties
+        self._user_context = None
+        self._active = False
+        # @todo: raise jira to add 'context' attr to api
         self._pn_link = pn_link
-        # @todo: raise jira to add 'context' to api
         pn_link.context = self
 
         if target_address is None:
@@ -58,8 +60,10 @@ class _Link(object):
             else:
                 raise Exception("Unknown distribution mode: %s" %
                                 str(desired_mode))
-        self._user_context = None
-        self._active = False
+
+    @property
+    def name(self):
+        return self._name
 
     def open(self):
         """
@@ -107,10 +111,10 @@ Associate an arbitrary application object with this link.
                          | proton.Endpoint.REMOTE_CLOSED)
 
     def destroy(self):
+        LOG.debug("link destroyed %s" % str(self._pn_link))
         self._user_context = None
         self._pn_link.context = None
         self._pn_link = None
-
 
 class SenderEventHandler(object):
     """
@@ -118,7 +122,10 @@ class SenderEventHandler(object):
     def sender_active(self, sender_link):
         LOG.debug("sender_active (ignored)")
 
-    def sender_closed(self, sender_link, error=None):
+    def sender_remote_closed(self, sender_link, error=None):
+        LOG.debug("sender_remote_closed (ignored)")
+
+    def sender_closed(self, sender_link):
         LOG.debug("sender_closed (ignored)")
 
 
@@ -134,9 +141,9 @@ class SenderLink(_Link):
     RELEASED = 3
     MODIFIED = 4
 
-    def __init__(self, connection, pn_link, name, source_address,
+    def __init__(self, connection, pn_link, source_address,
                  target_address, eventHandler, properties):
-        super(SenderLink, self).__init__(connection, pn_link, name,
+        super(SenderLink, self).__init__(connection, pn_link,
                                          target_address, source_address,
                                          eventHandler, properties)
         self._pending_sends = collections.deque()
@@ -242,7 +249,10 @@ class ReceiverEventHandler(object):
     def receiver_active(self, receiver_link):
         LOG.debug("receiver_active (ignored)")
 
-    def receiver_closed(self, receiver_link, error=None):
+    def receiver_remote_closed(self, receiver_link, error=None):
+        LOG.debug("receiver_remote_closed (ignored)")
+
+    def receiver_closed(self, receiver_link):
         LOG.debug("receiver_closed (ignored)")
 
     def message_received(self, receiver_link, message, handle):
@@ -250,9 +260,9 @@ class ReceiverEventHandler(object):
 
 
 class ReceiverLink(_Link):
-    def __init__(self, connection, pn_link, name, target_address,
+    def __init__(self, connection, pn_link, target_address,
                  source_address, eventHandler, properties):
-        super(ReceiverLink, self).__init__(connection, pn_link, name,
+        super(ReceiverLink, self).__init__(connection, pn_link,
                                            target_address, source_address,
                                            eventHandler, properties)
         self._next_handle = 0

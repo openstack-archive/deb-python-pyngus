@@ -26,7 +26,7 @@ LOG = logging.getLogger(__name__)
     processing.
 """
 
-def read_socket_input(connection, socket):
+def read_socket_input(connection, socket_obj):
     """Read from the network layer and processes all data read.  Can
     support both blocking and non-blocking sockets.
     Returns the number of input bytes processed, or EOS if input processing
@@ -37,7 +37,7 @@ def read_socket_input(connection, socket):
         return count  # 0 or EOS
 
     try:
-        sock_data = socket.recv(count)
+        sock_data = socket_obj.recv(count)
     except socket.timeout, e:
         LOG.debug("Socket timeout exception %s", str(e))
         raise  # caller must handle
@@ -64,7 +64,7 @@ def read_socket_input(connection, socket):
         connection.close_input()
     return count
 
-def write_socket_output(connection, socket):
+def write_socket_output(connection, socket_obj):
     """Write data to the network layer.  Can support both blocking and
     non-blocking sockets.
     """
@@ -74,7 +74,7 @@ def write_socket_output(connection, socket):
 
     data = connection.output_data()
     try:
-        count = socket.send(data)
+        count = socket_obj.send(data)
     except socket.timeout, e:
         LOG.debug("Socket timeout exception %s", str(e))
         raise # caller must handle
