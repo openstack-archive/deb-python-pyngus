@@ -17,6 +17,13 @@
 # under the License.
 #
 
+__all__ = [
+    "SenderEventHandler",
+    "SenderLink",
+    "ReceiverEventHandler",
+    "ReceiverLink"
+    ]
+
 import collections, logging
 import proton
 
@@ -321,10 +328,3 @@ class ReceiverLink(_Link):
         delivery.update(result)
         delivery.settle()
 
-
-__all__ = [
-    "SenderEventHandler",
-    "SenderLink",
-    "ReceiverEventHandler",
-    "ReceiverLink"
-    ]

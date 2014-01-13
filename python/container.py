@@ -16,6 +16,12 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+
+__all__ = [
+    "ContainerEventHandler",
+    "Container"
+    ]
+
 import heapq, logging
 from connection import Connection
 
@@ -88,7 +94,3 @@ class Container(object):
         if name in self._connections:
             del self._connections[name]
 
-__all__ = [
-    "ContainerEventHandler",
-    "Container"
-    ]

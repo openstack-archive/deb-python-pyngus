@@ -16,6 +16,12 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+
+__all__ = [
+    "read_socket_input",
+    "write_socket_output"
+    ]
+
 import socket, errno, logging
 
 from connection import Connection
@@ -101,8 +107,3 @@ def write_socket_output(connection, socket_obj):
         connection.close_output()
     return count
 
-
-__all__ = [
-    "read_socket_input",
-    "write_socket_output"
-    ]

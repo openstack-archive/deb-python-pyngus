@@ -17,6 +17,11 @@
 # under the License.
 #
 
+__all__ = [
+    "ConnectionEventHandler",
+    "Connection"
+    ]
+
 import logging
 
 import proton
@@ -488,8 +493,3 @@ Associate an arbitrary user object with this Connection.
         if name in self._receiver_links:
             del self._receiver_links[name]
 
-
-__all__ = [
-    "ConnectionEventHandler",
-    "Connection"
-    ]
