@@ -1,36 +1,36 @@
+#    Licensed to the Apache Software Foundation (ASF) under one
+#    or more contributor license agreements.  See the NOTICE file
+#    distributed with this work for additional information
+#    regarding copyright ownership.
 #
-# Licensed to the Apache Software Foundation (ASF) under one
-# or more contributor license agreements.  See the NOTICE file
-# distributed with this work for additional information
-# regarding copyright ownership.  The ASF licenses this file
-# to you under the Apache License, Version 2.0 (the
-# "License"); you may not use this file except in compliance
-# with the License.  You may obtain a copy of the License at
+#    Licensed under the Apache License, Version 2.0 (the "License"); you may
+#    not use this file except in compliance with the License. You may obtain
+#    a copy of the License at
 #
-#   http://www.apache.org/licenses/LICENSE-2.0
+#         http://www.apache.org/licenses/LICENSE-2.0
 #
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an
-# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-# KIND, either express or implied.  See the License for the
-# specific language governing permissions and limitations
-# under the License.
-#
+#    Unless required by applicable law or agreed to in writing, software
+#    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+#    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+#    License for the specific language governing permissions and limitations
+#    under the License.
 
 __all__ = [
     "SenderEventHandler",
     "SenderLink",
     "ReceiverEventHandler",
     "ReceiverLink"
-    ]
+]
 
-import collections, logging
+import collections
+import logging
 import proton
 
 LOG = logging.getLogger(__name__)
 
+
 class _Link(object):
-    """Generic Link base class"""
+    """A generic Link base class."""
     def __init__(self, connection, pn_link,
                  target_address, source_address,
                  handler, properties):
@@ -73,8 +73,6 @@ class _Link(object):
         return self._name
 
     def open(self):
-        """
-        """
         self._pn_link.open()
 
     def _get_user_context(self):
@@ -91,7 +89,7 @@ Associate an arbitrary application object with this link.
     @property
     def source_address(self):
         """If link is a sender, source is determined by the local value, else
-        use the remote
+        use the remote.
         """
         if self._pn_link.is_sender:
             return self._pn_link.source.address
@@ -101,7 +99,7 @@ Associate an arbitrary application object with this link.
     @property
     def target_address(self):
         """If link is a receiver, target is determined by the local value, else
-        use the remote
+        use the remote.
         """
         if self._pn_link.is_receiver:
             return self._pn_link.target.address
@@ -123,9 +121,8 @@ Associate an arbitrary application object with this link.
         self._pn_link.context = None
         self._pn_link = None
 
+
 class SenderEventHandler(object):
-    """
-    """
     def sender_active(self, sender_link):
         LOG.debug("sender_active (ignored)")
 
@@ -160,23 +157,22 @@ class SenderLink(_Link):
 
         # @todo - think about send-settle-mode configuration
 
-    def send(self, message, delivery_callback=None, handle=None, deadline=None):
-        """
-        """
-        self._pending_sends.append( (message, delivery_callback, handle,
-                                     deadline) )
+    def send(self, message, delivery_callback=None,
+             handle=None, deadline=None):
+        self._pending_sends.append((message, delivery_callback, handle,
+                                   deadline))
         # @todo deadline not supported yet
         assert not deadline, "send timeout not supported yet!"
         if deadline and (self._next_deadline == 0 or
                          self._next_deadline > deadline):
             self._next_deadline = deadline
 
-        delivery = self._pn_link.delivery( "tag-%x" % self._next_tag )
+        delivery = self._pn_link.delivery("tag-%x" % self._next_tag)
         self._next_tag += 1
 
         if delivery.writable:
             send_req = self._pending_sends.popleft()
-            self._write_msg( delivery, send_req )
+            self._write_msg(delivery, send_req)
 
         return 0
 
@@ -213,11 +209,12 @@ class SenderLink(_Link):
             proton.Disposition.REJECTED: SenderLink.REJECTED,
             proton.Disposition.RELEASED: SenderLink.RELEASED,
             proton.Disposition.MODIFIED: SenderLink.MODIFIED,
-            }
+        }
 
         if delivery.tag in self._pending_acks:
             if delivery.settled:  # remote has finished
-                LOG.debug("delivery updated, remote state=%s", str(delivery.remote_state))
+                LOG.debug("delivery updated, remote state=%s",
+                          str(delivery.remote_state))
 
                 send_req = self._pending_acks.pop(delivery.tag)
                 state = _disposition_state_map.get(delivery.remote_state,
@@ -241,7 +238,7 @@ class SenderLink(_Link):
         # send_req = (msg, cb, handle, deadline)
         msg = send_req[0]
         cb = send_req[1]
-        self._pn_link.send( msg.encode() )
+        self._pn_link.send(msg.encode())
         self._pn_link.advance()
         if cb:  # delivery callback given
             assert delivery.tag not in self._pending_acks
@@ -273,7 +270,7 @@ class ReceiverLink(_Link):
                                            target_address, source_address,
                                            eventHandler, properties)
         self._next_handle = 0
-        self._unsettled_deliveries = {} # indexed by handle
+        self._unsettled_deliveries = {}  # indexed by handle
 
         # @todo - think about receiver-settle-mode configuration
 
@@ -327,4 +324,3 @@ class ReceiverLink(_Link):
         delivery = self._unsettled_deliveries.pop(handle)
         delivery.update(result)
         delivery.settle()
-
