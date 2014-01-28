@@ -80,17 +80,29 @@ class SocketConnection(fusion.ConnectionEventHandler):
 
     def process_input(self):
         """Called when socket is read-ready"""
-        rc = fusion.read_socket_input(self.connection,
-                                      self.socket)
+        try:
+            rc = fusion.read_socket_input(self.connection,
+                                          self.socket)
+        except Exception as e:
+            LOG.debug("Exception on socket read: %s", str(e))
+            # may be redundant if closed cleanly:
+            self.connection_closed(self.connection)
+            return
+
         self.connection.process(time.time())
-        return rc
 
     def send_output(self):
         """Called when socket is write-ready"""
-        rc = fusion.write_socket_output(self.connection,
-                                        self.socket)
+        try:
+            fusion.write_socket_output(self.connection,
+                                       self.socket)
+        except Exception as e:
+            LOG.debug("Exception on socket write: %s", str(e))
+            # may be redundant if closed cleanly:
+            self.connection_closed(self.connection)
+            return
+
         self.connection.process(time.time())
-        return rc
 
     # ConnectionEventHandler callbacks:
 
@@ -367,7 +379,7 @@ def main(argv=None):
 
             else:
                 assert isinstance(r, SocketConnection)
-                rc = r.process_input()
+                r.process_input()
                 worked.append(r)
 
         for t in timers:
@@ -381,7 +393,7 @@ def main(argv=None):
 
         for w in writable:
             assert isinstance(w, SocketConnection)
-            rc = w.send_output()
+            w.send_output()
             worked.append(w)
 
         # nuke any completed connections:

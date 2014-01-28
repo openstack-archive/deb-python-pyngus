@@ -87,12 +87,12 @@ class MyConnection(fusion.ConnectionEventHandler):
         LOG.debug("select() returned")
 
         if readable:
-            rc = fusion.read_socket_input(self.connection,
-                                          self.socket)
+            fusion.read_socket_input(self.connection,
+                                     self.socket)
         self.connection.process(time.time())
         if writable:
-            rc = fusion.write_socket_output(self.connection,
-                                            self.socket)
+            fusion.write_socket_output(self.connection,
+                                       self.socket)
 
     def close(self, error=None):
         self.connection.close(error)

@@ -153,10 +153,12 @@ Associate an arbitrary user object with this Connection.
 
     @property
     def closed(self):
-        #return self._write_done and self._read_done
+        """Return True if the Connection has closed."""
         state = self._pn_connection.state
-        return state == (proton.Endpoint.LOCAL_CLOSED
-                         | proton.Endpoint.REMOTE_CLOSED)
+        # if closed in error, state may not be correct:
+        return (state == (proton.Endpoint.LOCAL_CLOSED
+                          | proton.Endpoint.REMOTE_CLOSED)
+                or (self._write_done and self._read_done))
 
     def destroy(self):
         self._sender_links.clear()
@@ -341,9 +343,12 @@ Associate an arbitrary user object with this Connection.
     def needs_input(self):
         if self._read_done:
             return self.EOS
-        capacity = self._pn_transport.capacity()
-        if capacity >= 0:
-            return capacity
+        try:
+            capacity = self._pn_transport.capacity()
+            if capacity >= 0:
+                return capacity
+        except:
+            pass
         self._read_done = True
         return self.EOS
 
@@ -352,7 +357,12 @@ Associate an arbitrary user object with this Connection.
         if c <= 0:
             return c
 
-        rc = self._pn_transport.push(in_data[:c])
+        try:
+            rc = self._pn_transport.push(in_data[:c])
+        except Exception as e:
+            LOG.debug("Transport.push failure %s", str(e))
+            rc = self.EOS
+
         if rc:  # error
             self._read_done = True
             return self.EOS
@@ -360,17 +370,22 @@ Associate an arbitrary user object with this Connection.
 
     def close_input(self, reason=None):
         if not self._read_done:
-            self._pn_transport.close_tail()
+            try:
+                self._pn_transport.close_tail()
+            except:
+                pass  # ignore - we're closing anyway
         self._read_done = True
 
     @property
     def has_output(self):
         if self._write_done:
             return self.EOS
-
-        pending = self._pn_transport.pending()
-        if pending >= 0:
-            return pending
+        try:
+            pending = self._pn_transport.pending()
+            if pending >= 0:
+                return pending
+        except:
+            pass
         self._write_done = True
         return self.EOS
 
@@ -379,15 +394,26 @@ Associate an arbitrary user object with this Connection.
         if c <= 0:
             return None
 
-        buf = self._pn_transport.peek(c)
-        return buf
+        try:
+            buf = self._pn_transport.peek(c)
+            return buf
+        except Exception as e:
+            LOG.debug("Transport.peek failure %s", str(e))
+        self._write_done = True
+        return None
 
     def output_written(self, count):
-        self._pn_transport.pop(count)
+        try:
+            self._pn_transport.pop(count)
+        except Exception as e:
+            LOG.debug("Transport.pop failure %s", str(e))
 
     def close_output(self, reason=None):
         if not self._write_done:
-            self._pn_transport.close_head()
+            try:
+                self._pn_transport.close_head()
+            except:
+                pass   # ignore - closing anyways
         self._write_done = True
 
     def create_sender(self, source_address, target_address=None,
