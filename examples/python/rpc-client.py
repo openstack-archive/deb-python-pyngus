@@ -129,6 +129,9 @@ class MyConnection(fusion.ConnectionEventHandler):
     def connection_closed(self, connection):
         LOG.debug("Connection closed callback")
 
+    def connection_failed(self, connection, error):
+        LOG.error("Connection failed! error=%s" % str(error))
+
     def sender_requested(self, connection, link_handle,
                          requested_source, properties={}):
         # call accept_sender to accept new link,

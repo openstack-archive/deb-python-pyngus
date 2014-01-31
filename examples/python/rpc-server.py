@@ -84,7 +84,7 @@ class SocketConnection(fusion.ConnectionEventHandler):
             rc = fusion.read_socket_input(self.connection,
                                           self.socket)
         except Exception as e:
-            LOG.debug("Exception on socket read: %s", str(e))
+            LOG.error("Exception on socket read: %s", str(e))
             # may be redundant if closed cleanly:
             self.connection_closed(self.connection)
             return
@@ -97,7 +97,7 @@ class SocketConnection(fusion.ConnectionEventHandler):
             fusion.write_socket_output(self.connection,
                                        self.socket)
         except Exception as e:
-            LOG.debug("Exception on socket write: %s", str(e))
+            LOG.error("Exception on socket write: %s", str(e))
             # may be redundant if closed cleanly:
             self.connection_closed(self.connection)
             return
@@ -118,6 +118,10 @@ class SocketConnection(fusion.ConnectionEventHandler):
         LOG.debug("connection closed.")
         # main loop will destroy
         self.done = True
+
+    def connection_failed(self, connection, error):
+        LOG.error("connection failed! error=%s" % str(error))
+        self.connection_closed(connection)
 
     def sender_requested(self, connection, link_handle,
                          name, requested_source, properties):

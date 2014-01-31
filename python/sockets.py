@@ -83,6 +83,9 @@ def write_socket_output(connection, socket_obj):
         return count  # 0 or EOS
 
     data = connection.output_data()
+    if not data:
+        # error - has_output > 0, but no data?
+        return Connection.EOS
     try:
         count = socket_obj.send(data)
     except socket.timeout as e:

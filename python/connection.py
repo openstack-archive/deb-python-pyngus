@@ -35,6 +35,10 @@ class ConnectionEventHandler(object):
         """Connection handshake has completed."""
         LOG.debug("connection_active (ignored)")
 
+    def connection_failed(self, connection, error):
+        """Connection's transport has failed in some way."""
+        LOG.warn("connection_failed, error=%s (ignored)" % str(error))
+
     def connection_remote_closed(self, connection, error=None):
         LOG.debug("connection_remote_closed (ignored)")
 
@@ -289,11 +293,13 @@ Associate an arbitrary user object with this Connection.
                 if pn_link.is_sender:
                     sender_link = pn_link.context
                     handler = pn_link.context._handler
-                    handler.sender_remote_closed(sender_link, None)
+                    if handler:
+                        handler.sender_remote_closed(sender_link, None)
                 else:
                     receiver_link = pn_link.context
                     handler = pn_link.context._handler
-                    handler.receiver_remote_closed(receiver_link, None)
+                    if handler:
+                        handler.receiver_remote_closed(receiver_link, None)
             pn_link = next_link
 
         pn_link = self._pn_connection.link_head(self._CLOSED)
@@ -344,11 +350,12 @@ Associate an arbitrary user object with this Connection.
         if self._read_done:
             return self.EOS
         try:
+            #TODO(grs): can this actually throw?
             capacity = self._pn_transport.capacity()
-            if capacity >= 0:
-                return capacity
-        except:
-            pass
+        except Exception as e:
+            return self._connection_failed(str(e))
+        if capacity >= 0:
+            return capacity
         self._read_done = True
         return self.EOS
 
@@ -356,14 +363,11 @@ Associate an arbitrary user object with this Connection.
         c = self.needs_input
         if c <= 0:
             return c
-
         try:
             rc = self._pn_transport.push(in_data[:c])
         except Exception as e:
-            LOG.debug("Transport.push failure %s", str(e))
-            rc = self.EOS
-
-        if rc:  # error
+            return self._connection_failed(str(e))
+        if rc:  # error?
             self._read_done = True
             return self.EOS
         return c
@@ -374,7 +378,7 @@ Associate an arbitrary user object with this Connection.
                 self._pn_transport.close_tail()
             except:
                 pass  # ignore - we're closing anyway
-        self._read_done = True
+            self._read_done = True
 
     @property
     def has_output(self):
@@ -382,31 +386,31 @@ Associate an arbitrary user object with this Connection.
             return self.EOS
         try:
             pending = self._pn_transport.pending()
-            if pending >= 0:
-                return pending
-        except:
-            pass
+        except Exception as e:
+            return self._connection_failed(str(e))
+        if pending >= 0:
+            return pending
         self._write_done = True
         return self.EOS
 
     def output_data(self):
+        """Get a buffer of data that needs to be written to the network.
+        """
         c = self.has_output
         if c <= 0:
             return None
-
         try:
             buf = self._pn_transport.peek(c)
-            return buf
         except Exception as e:
-            LOG.debug("Transport.peek failure %s", str(e))
-        self._write_done = True
-        return None
+            self._connection_failed(str(e))
+            return None
+        return buf
 
     def output_written(self, count):
         try:
             self._pn_transport.pop(count)
         except Exception as e:
-            LOG.debug("Transport.pop failure %s", str(e))
+            self._connection_failed(str(e))
 
     def close_output(self, reason=None):
         if not self._write_done:
@@ -414,7 +418,7 @@ Associate an arbitrary user object with this Connection.
                 self._pn_transport.close_head()
             except:
                 pass   # ignore - closing anyways
-        self._write_done = True
+            self._write_done = True
 
     def create_sender(self, source_address, target_address=None,
                       eventHandler=None, name=None, properties={}):
@@ -500,3 +504,13 @@ Associate an arbitrary user object with this Connection.
     def _remove_receiver(self, name):
         if name in self._receiver_links:
             del self._receiver_links[name]
+
+    def _connection_failed(self, error):
+        """Clean up after connection failure detected."""
+        self._read_done = True
+        self._write_done = True
+        if self._handler:
+            self._handler.connection_failed(self, error)
+        else:
+            LOG.error("Connection failed: %s", str(error))
+        return self.EOS
