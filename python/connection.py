@@ -376,7 +376,7 @@ Associate an arbitrary user object with this Connection.
         if not self._read_done:
             try:
                 self._pn_transport.close_tail()
-            except:
+            except Exception:
                 pass  # ignore - we're closing anyway
             self._read_done = True
 
@@ -416,7 +416,7 @@ Associate an arbitrary user object with this Connection.
         if not self._write_done:
             try:
                 self._pn_transport.close_head()
-            except:
+            except Exception:
                 pass   # ignore - closing anyways
             self._write_done = True
 
