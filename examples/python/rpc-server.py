@@ -299,6 +299,8 @@ def main(argv=None):
                       default="amqp://0.0.0.0:5672",
                       help="""The socket address this server will listen on
  [amqp://0.0.0.0:5672]""")
+    parser.add_option("--idle", dest="idle_timeout", type="float",
+                      help="timeout for an idle link, in seconds")
     parser.add_option("--trace", dest="trace", action="store_true",
                       help="enable protocol tracing")
     parser.add_option("--debug", dest="debug", action="store_true",
@@ -373,8 +375,10 @@ def main(argv=None):
                 name = uuid.uuid4().hex
                 assert name not in socket_connections
                 conn_properties = {}
+                if opts.idle_timeout:
+                    conn_properties["idle-time-out"] = opts.idle_timeout
                 if opts.trace:
-                    conn_properties["trace"] = True
+                    conn_properties["x-trace-protocol"] = True
                 socket_connections[name] = SocketConnection(name,
                                                             client_socket,
                                                             container,

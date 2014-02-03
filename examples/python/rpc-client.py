@@ -339,7 +339,7 @@ def main(argv=None):
     container = fusion.Container(uuid.uuid4().hex)
     conn_properties = {}
     if opts.trace:
-        conn_properties["trace"] = True
+        conn_properties["x-trace-protocol"] = True
 
     my_connection = MyConnection( "to-server", container, conn_properties)
 

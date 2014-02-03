@@ -82,7 +82,10 @@ class Connection(object):
 
         self._pn_transport = proton.Transport()
         self._pn_transport.bind(self._pn_connection)
-        if properties.get("trace"):
+        secs = properties.get("idle-time-out")
+        if secs:
+            self._pn_transport.idle_timeout = secs
+        if properties.get("x-trace-protocol"):
             self._pn_transport.trace(proton.Transport.TRACE_FRM)
 
         # indexed by link-name
