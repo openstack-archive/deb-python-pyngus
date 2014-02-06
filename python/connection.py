@@ -20,7 +20,7 @@ __all__ = [
     "Connection"
 ]
 
-import logging
+import logging, time
 
 from link import ReceiverLink
 from link import SenderLink
@@ -141,6 +141,7 @@ class Connection(object):
 
         self._read_done = False
         self._write_done = False
+        self._error = None
         self._next_tick = 0
         self._user_context = None
         self._active = False
@@ -266,6 +267,14 @@ Associate an arbitrary user object with this Connection.
     _LOCAL_UNINIT = proton.Endpoint.LOCAL_UNINIT
 
     def process(self, now):
+        """Perform connection state processing."""
+        if self._error:
+            if self._handler:
+                self._handler.connection_failed(self, self._error)
+            # nag application until connection is destroyed
+            self._next_tick = now
+            return now
+
         self._next_tick = self._pn_transport.tick(now)
 
         # wait until SASL has authenticated
@@ -563,12 +572,13 @@ Associate an arbitrary user object with this Connection.
 
     def _connection_failed(self, error):
         """Clean up after connection failure detected."""
-        self._read_done = True
-        self._write_done = True
-        if self._handler:
-            self._handler.connection_failed(self, error)
-        else:
+        if not self._error:
             LOG.error("Connection failed: %s", str(error))
+            self._read_done = True
+            self._write_done = True
+            self._error = error
+            # report error during the next call to process()
+            self._next_tick = time.time()
         return self.EOS
 
     def _configure_ssl(self, properties):
