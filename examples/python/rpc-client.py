@@ -303,6 +303,8 @@ def main(argv=None):
                       help="enable protocol tracing")
     parser.add_option("--debug", dest="debug", action="store_true",
                       help="enable debug logging")
+    parser.add_option("--ca",
+                      help="Certificate Authority PEM file")
 
     opts, method_info = parser.parse_args(args=argv)
     if not method_info:
@@ -340,6 +342,8 @@ def main(argv=None):
     conn_properties = {}
     if opts.trace:
         conn_properties["x-trace-protocol"] = True
+    if opts.ca:
+        conn_properties["x-ssl-ca-file"] = opts.ca
 
     my_connection = MyConnection( "to-server", container, conn_properties)
 

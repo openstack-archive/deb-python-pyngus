@@ -305,6 +305,12 @@ def main(argv=None):
                       help="enable protocol tracing")
     parser.add_option("--debug", dest="debug", action="store_true",
                       help="enable debug logging")
+    parser.add_option("--cert",
+                      help="PEM File containing the server's certificate")
+    parser.add_option("--key",
+                      help="PEM File containing the server's private key")
+    parser.add_option("--keypass",
+                      help="Password used to decrypt key file")
 
     opts, arguments = parser.parse_args(args=argv)
     if opts.debug:
@@ -379,6 +385,10 @@ def main(argv=None):
                     conn_properties["idle-time-out"] = opts.idle_timeout
                 if opts.trace:
                     conn_properties["x-trace-protocol"] = True
+                if opts.cert:
+                    conn_properties["x-ssl-server"] = True
+                    identity = (opts.cert, opts.key, opts.keypass)
+                    conn_properties["x-ssl-identity"] = identity
                 socket_connections[name] = SocketConnection(name,
                                                             client_socket,
                                                             container,
