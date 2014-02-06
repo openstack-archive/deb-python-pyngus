@@ -131,6 +131,7 @@ class MyConnection(fusion.ConnectionEventHandler):
 
     def connection_failed(self, connection, error):
         LOG.error("Connection failed! error=%s" % str(error))
+        raise Exception("Connection failure: %s" % str(error))
 
     def sender_requested(self, connection, link_handle,
                          requested_source, properties={}):
@@ -357,36 +358,39 @@ def main(argv=None):
                                              "my-target-address",
                                              receiver_properties={},
                                              sender_properties={})
-    my_connection.connect(my_socket)
+    try:
+        my_connection.connect(my_socket)
+        repeat = 0
+        while opts.repeat == 0 or repeat < opts.repeat:
 
-    repeat = 0
-    while opts.repeat == 0 or repeat < opts.repeat:
+            LOG.debug("Requesting RPC...")
 
-        LOG.debug("Requesting RPC...")
+            my_caller.connect()
+            while not my_caller.done():
+                my_connection.process()
 
-        my_caller.connect()
-        while not my_caller.done():
+            LOG.debug("RPC completed!  Closing caller...")
+
+            my_caller.close()
+
+            while not my_caller.closed():
+                my_connection.process()
+
+            LOG.debug("Caller closed cleanly!")
+
+            repeat += 1
+
+        print("Closing connections")
+        my_connection.close()
+        while not my_connection.closed:
             my_connection.process()
 
-        LOG.debug("RPC completed!  Closing caller...")
-
-        my_caller.close()
-
-        while not my_caller.closed():
-            my_connection.process()
-
-        LOG.debug("Caller closed cleanly!")
-
-        repeat += 1
-
-    print("Closing connections")
-    my_connection.close()
-    while not my_connection.closed:
-        my_connection.process()
-
-    LOG.debug("Connection closed")
-    my_caller.destroy()
-    my_connection.destroy()
+        LOG.debug("Connection closed")
+        my_caller.destroy()
+        my_connection.destroy()
+    except Exception as e:
+        LOG.error("Unexpected exception occured: %s" % str(e))
+        return -1
 
     return 0
 
