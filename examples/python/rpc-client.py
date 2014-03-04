@@ -16,6 +16,12 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+""" This module implements a simple RPC client.  The client sends a 'method
+call' to a server, and waits for a response.  The method call is a map of the
+form: {'method': '<name of method on server>', 'args': {<map of name=value
+arguments for the call} }
+"""
+
 import optparse, sys, time, uuid
 import re, socket, select, errno
 import logging
@@ -26,13 +32,6 @@ import fusion
 LOG = logging.getLogger()
 LOG.addHandler(logging.StreamHandler())
 
-"""
-This module implements a simple RPC client.  The client sends a 'method call'
-to a server, and waits for a response.  The method call is a map of the form:
-{'method': '<name of method on server>',
- 'args': {<map of name=value arguments for the call}
-}
-"""
 
 
 class MyConnection(fusion.ConnectionEventHandler):
@@ -56,9 +55,9 @@ class MyConnection(fusion.ConnectionEventHandler):
             self.socket.close()
             self.socket = None
 
-    def connect(self, socket):
+    def connect(self, socket_):
         self.reset()
-        self.socket = socket
+        self.socket = socket_
         self.connection = self.container.create_connection(self.name,
                                                            self,
                                                            self.properties)
@@ -83,7 +82,10 @@ class MyConnection(fusion.ConnectionEventHandler):
             timeout = 0 if deadline <= now else deadline - now
 
         LOG.debug("select() start (t=%s)", str(timeout))
-        readable,writable,ignore = select.select(readfd,writefd,[],timeout)
+        readable, writable, ignore = select.select(readfd,
+                                                   writefd,
+                                                   [],
+                                                   timeout)
         LOG.debug("select() returned")
 
         if readable:
@@ -130,17 +132,17 @@ class MyConnection(fusion.ConnectionEventHandler):
         LOG.debug("Connection closed callback")
 
     def connection_failed(self, connection, error):
-        LOG.error("Connection failed! error=%s" % str(error))
+        LOG.error("Connection failed! error=%s", str(error))
         raise Exception("Connection failure: %s" % str(error))
 
     def sender_requested(self, connection, link_handle,
-                         requested_source, properties={}):
+                         requested_source, properties):
         # call accept_sender to accept new link,
         # reject_sender to reject it.
         assert False, "Not expected"
 
     def receiver_requested(self, connection, link_handle,
-                           requested_target, properties={}):
+                           requested_target, properties):
         # call accept_sender to accept new link,
         # reject_sender to reject it.
         assert False, "Not expected"
@@ -151,8 +153,7 @@ class MyConnection(fusion.ConnectionEventHandler):
 
 class MyCaller(fusion.SenderEventHandler,
                fusion.ReceiverEventHandler):
-    """
-    """
+    """Implements state for a single RPC call."""
 
     def __init__(self, method_map, my_connection,
                  my_source, my_target,
@@ -170,7 +171,9 @@ class MyCaller(fusion.SenderEventHandler,
 
     def reset(self):
         LOG.debug("Resetting my-caller")
-        # @todo: for now, use new name as engine isn't cleaning up link state properly...
+        # TODO(kgiusti: for now, use new name as engine isn't cleaning up link
+        # state properly...
+
         self._name = uuid.uuid4().hex
         self._reply_to = None
         self._to = None
@@ -189,16 +192,20 @@ class MyCaller(fusion.SenderEventHandler,
         self.reset()
         LOG.debug("Connecting my-caller")
         conn = self._my_connection.connection
-        self._sender = conn.create_sender(self._source_addr, target_address=None,
-                                          eventHandler=self,
-                                          #name=self._source_addr,
-                                          name=self._name,
-                                          properties=self._sender_properties)
-        self._receiver = conn.create_receiver(self._target_addr, source_address=None,
-                                              eventHandler=self,
-                                              #name=self._target_addr,
-                                              name=self._name,
-                                              properties=self._receiver_properties)
+        self._sender = conn.create_sender(
+            self._source_addr,
+            target_address=None,
+            event_handler=self,
+            #name=self._source_addr,
+            name=self._name,
+            properties=self._sender_properties)
+        self._receiver = conn.create_receiver(
+            self._target_addr,
+            source_address=None,
+            event_handler=self,
+            #name=self._target_addr,
+            name=self._name,
+            properties=self._receiver_properties)
         self._sender.open()
         self._receiver.add_capacity(1)
         self._receiver.open()
@@ -389,7 +396,7 @@ def main(argv=None):
         my_caller.destroy()
         my_connection.destroy()
     except Exception as e:
-        LOG.error("Unexpected exception occured: %s" % str(e))
+        LOG.error("Unexpected exception occured: %s", str(e))
         return -1
 
     return 0

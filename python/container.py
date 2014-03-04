@@ -28,28 +28,28 @@ LOG = logging.getLogger(__name__)
 
 
 class ContainerEventHandler(object):
-    # @todo - ContainerEventHandler
+    # TODO(kgiusti) - ContainerEventHandler
     pass
 
 
-# An implementation of an AMQP 1.0 container
 class Container(object):
-    def __init__(self, name, eventHandler=None, properties={}):
+    """An implementation of an AMQP 1.0 container."""
+    def __init__(self, name, event_handler=None, properties=None):
         self._name = name
         self._connections = {}
         self._timer_heap = []  # (next_tick, connection)
         self._need_processing = set()
-        self._handler = eventHandler
+        self._handler = event_handler
         self._properties = properties
 
     @property
     def name(self):
         return self._name
 
-    def create_connection(self, name, eventHandler=None, properties={}):
+    def create_connection(self, name, event_handler=None, properties=None):
         if name in self._connections:
             raise KeyError("connection '%s' already exists" % str(name))
-        conn = Connection(self, name, eventHandler, properties)
+        conn = Connection(self, name, event_handler, properties)
         if conn:
             self._connections[name] = conn
         return conn

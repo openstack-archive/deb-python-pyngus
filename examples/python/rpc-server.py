@@ -16,16 +16,6 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-import optparse, sys, time, uuid
-import re, socket, select, errno
-import logging
-
-from proton import Message
-import fusion
-
-LOG = logging.getLogger()
-LOG.addHandler(logging.StreamHandler())
-
 """
 This module implements a simple RPC server that can be used with the example
 RPC client.  The client sends a 'method call'
@@ -37,6 +27,19 @@ The server replies to the client using a map that contains a copy of the method
 map sent in the request.
 """
 
+import optparse, sys, time, uuid
+import re, socket, select, errno
+import logging
+#import gc
+
+from guppy import hpy
+hp = hpy()
+
+from proton import Message
+import fusion
+
+LOG = logging.getLogger()
+LOG.addHandler(logging.StreamHandler())
 
 # Maps of outgoing and incoming links.  These are indexed by
 # (remote-container-name, link-name)
@@ -53,9 +56,9 @@ socket_connections = {} # indexed by name
 class SocketConnection(fusion.ConnectionEventHandler):
     """Associates a fusion Connection with a python network socket"""
 
-    def __init__(self, name, socket, container, conn_properties):
+    def __init__(self, name, socket_, container, conn_properties):
         self.name = name
-        self.socket = socket
+        self.socket = socket_
         self.connection = container.create_connection(name, self,
                                                       conn_properties)
         self.connection.user_context = self
@@ -120,7 +123,7 @@ class SocketConnection(fusion.ConnectionEventHandler):
         self.done = True
 
     def connection_failed(self, connection, error):
-        LOG.error("connection failed! error=%s" % str(error))
+        LOG.error("connection failed! error=%s", str(error))
         self.connection_closed(connection)
 
     def sender_requested(self, connection, link_handle,
@@ -163,7 +166,8 @@ class SocketConnection(fusion.ConnectionEventHandler):
         if not requested_target:
             requested_target = uuid.uuid4().hex
 
-        receiver = MyReceiverLink(ident, connection, link_handle, requested_target)
+        receiver = MyReceiverLink(ident, connection,
+                                  link_handle, requested_target)
         receiver_links[ident] = receiver
         print("New Receiver link created, target=%s" % requested_target)
 
@@ -178,10 +182,9 @@ class SocketConnection(fusion.ConnectionEventHandler):
 
 
 class MySenderLink(fusion.SenderEventHandler):
-    """
-    """
+    """Link for sending RPC replies."""
     def __init__(self, ident, connection, link_handle,
-                 source_address, properties={}):
+                 source_address, properties=None):
 
         self._ident = ident
         self._source_address = source_address
@@ -222,7 +225,7 @@ class MyReceiverLink(fusion.ReceiverEventHandler):
     """
     """
     def __init__(self, ident, connection, link_handle, target_address,
-                 properties={}):
+                 properties=None):
         self._ident = ident
         self._target_address = target_address
         self._link = connection.accept_receiver(link_handle,
@@ -351,7 +354,7 @@ def main(argv=None):
 
         readfd = [my_socket]
         writefd = []
-        readers,writers,timers = container.need_processing()
+        readers, writers, timers = container.need_processing()
 
         # map fusion Connections back to my SocketConnections
         for c in readers:
@@ -370,7 +373,7 @@ def main(argv=None):
             timeout = 0 if deadline <= now else deadline - now
 
         LOG.debug("select() start (t=%s)", str(timeout))
-        readable,writable,ignore = select.select(readfd,writefd,[],timeout)
+        readable, writable, ignore = select.select(readfd, writefd, [], timeout)
         LOG.debug("select() returned")
 
         worked = []
@@ -393,7 +396,7 @@ def main(argv=None):
                                                             client_socket,
                                                             container,
                                                             conn_properties)
-                LOG.debug("new connection created name=%s" % name)
+                LOG.debug("new connection created name=%s", name)
 
             else:
                 assert isinstance(r, SocketConnection)
@@ -424,7 +427,7 @@ def main(argv=None):
                 sc.destroy()
                 closed = True
         if closed:
-            LOG.debug("%d active connections present" % len(socket_connections))
+            LOG.debug("%d active connections present", len(socket_connections))
 
     return 0
 

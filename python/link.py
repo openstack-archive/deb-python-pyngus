@@ -40,7 +40,7 @@ class _Link(object):
         self._properties = properties
         self._user_context = None
         self._active = False
-        # @todo: raise jira to add 'context' attr to api
+        # TODO(kgiusti): raise jira to add 'context' attr to api
         self._pn_link = pn_link
         pn_link.context = self
 
@@ -56,17 +56,17 @@ class _Link(object):
         elif source_address:
             self._pn_link.source.address = source_address
 
-        desired_mode = properties.get("distribution-mode")
-        if desired_mode:
-            if desired_mode == "copy":
-                self._pn_link.source.distribution_mode = \
-                    proton.Terminus.DIST_MODE_COPY
-            elif desired_mode == "move":
-                self._pn_link.source.distribution_mode = \
-                    proton.Terminus.DIST_MODE_MOVE
-            else:
-                raise Exception("Unknown distribution mode: %s" %
-                                str(desired_mode))
+        if properties:
+            desired_mode = properties.get("distribution-mode")
+            if desired_mode:
+                if desired_mode == "copy":
+                    mode = proton.Terminus.DIST_MODE_COPY
+                elif desired_mode == "move":
+                    mode = proton.Terminus.DIST_MODE_MOVE
+                else:
+                    raise Exception("Unknown distribution mode: %s" %
+                                    str(desired_mode))
+                self._pn_link.source.distribution_mode = mode
 
     @property
     def name(self):
@@ -81,16 +81,16 @@ class _Link(object):
     def _set_user_context(self, ctxt):
         self._user_context = ctxt
 
+    _uc_docstr = """Arbitrary application object associated with this link."""
+
     user_context = property(_get_user_context, _set_user_context,
-                            doc="""
-Associate an arbitrary application object with this link.
-""")
+                            doc=_uc_docstr)
 
     @property
     def source_address(self):
-        """If link is a sender, source is determined by the local value, else
-        use the remote.
-        """
+        """Return the authorative source of the link."""
+        # If link is a sender, source is determined by the local
+        # value, else use the remote.
         if self._pn_link.is_sender:
             return self._pn_link.source.address
         else:
@@ -98,9 +98,9 @@ Associate an arbitrary application object with this link.
 
     @property
     def target_address(self):
-        """If link is a receiver, target is determined by the local value, else
-        use the remote.
-        """
+        """Return the authorative target of the link."""
+        # If link is a receiver, target is determined by the local
+        # value, else use the remote.
         if self._pn_link.is_receiver:
             return self._pn_link.target.address
         else:
@@ -116,10 +116,12 @@ Associate an arbitrary application object with this link.
                          | proton.Endpoint.REMOTE_CLOSED)
 
     def destroy(self):
-        LOG.debug("link destroyed %s" % str(self._pn_link))
+        LOG.debug("link destroyed %s", str(self._pn_link))
         self._user_context = None
-        self._pn_link.context = None
-        self._pn_link = None
+        if self._pn_link:
+            self._pn_link.context = None
+            self._pn_link.free()
+            self._pn_link = None
 
 
 class SenderEventHandler(object):
@@ -146,22 +148,22 @@ class SenderLink(_Link):
     MODIFIED = 4
 
     def __init__(self, connection, pn_link, source_address,
-                 target_address, eventHandler, properties):
+                 target_address, event_handler, properties):
         super(SenderLink, self).__init__(connection, pn_link,
                                          target_address, source_address,
-                                         eventHandler, properties)
+                                         event_handler, properties)
         self._pending_sends = collections.deque()
         self._pending_acks = {}
         self._next_deadline = 0
         self._next_tag = 0
 
-        # @todo - think about send-settle-mode configuration
+        # TODO(kgiusti) - think about send-settle-mode configuration
 
     def send(self, message, delivery_callback=None,
              handle=None, deadline=None):
         self._pending_sends.append((message, delivery_callback, handle,
                                    deadline))
-        # @todo deadline not supported yet
+        # TODO(kgiusti) deadline not supported yet
         assert not deadline, "send timeout not supported yet!"
         if deadline and (self._next_deadline == 0 or
                          self._next_deadline > deadline):
@@ -265,14 +267,14 @@ class ReceiverEventHandler(object):
 
 class ReceiverLink(_Link):
     def __init__(self, connection, pn_link, target_address,
-                 source_address, eventHandler, properties):
+                 source_address, event_handler, properties):
         super(ReceiverLink, self).__init__(connection, pn_link,
                                            target_address, source_address,
-                                           eventHandler, properties)
+                                           event_handler, properties)
         self._next_handle = 0
         self._unsettled_deliveries = {}  # indexed by handle
 
-        # @todo - think about receiver-settle-mode configuration
+        # TODO(kgiusti) - think about receiver-settle-mode configuration
 
     def capacity(self):
         return self._pn_link.credit()
@@ -284,7 +286,7 @@ class ReceiverLink(_Link):
         self._settle_delivery(handle, proton.Delivery.ACCEPTED)
 
     def message_rejected(self, handle, reason=None):
-        # @todo: how to deal with 'reason'
+        # TODO(kgiusti): how to deal with 'reason'
         self._settle_delivery(handle, proton.Delivery.REJECTED)
 
     def message_released(self, handle):
@@ -293,14 +295,14 @@ class ReceiverLink(_Link):
     def message_modified(self, handle):
         self._settle_delivery(handle, proton.Delivery.MODIFIED)
 
-    def destroy(self, error=None):
+    def destroy(self):
         self._connection._remove_receiver(self._name)
         self._connection = None
         super(ReceiverLink, self).destroy()
 
     def _delivery_updated(self, delivery):
         # a receive delivery changed state
-        # @todo: multi-frame message transfer
+        # TODO(kgiusti): multi-frame message transfer
         LOG.debug("Receive delivery updated")
         if delivery.readable:
             data = self._pn_link.recv(delivery.pending)
@@ -314,7 +316,7 @@ class ReceiverLink(_Link):
                 self._unsettled_deliveries[handle] = delivery
                 self._handler.message_received(self, msg, handle)
             else:
-                # @todo: is it ok to assume Delivery.REJECTED?
+                # TODO(kgiusti): is it ok to assume Delivery.REJECTED?
                 delivery.settle()
 
     def _settle_delivery(self, handle, result):

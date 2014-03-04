@@ -14,6 +14,9 @@
 #    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
 #    License for the specific language governing permissions and limitations
 #    under the License.
+"""helper methods that provide boilerplate socket I/O and Connection
+    processing.
+"""
 
 __all__ = [
     "read_socket_input",
@@ -27,10 +30,6 @@ import socket
 from connection import Connection
 
 LOG = logging.getLogger(__name__)
-
-"""helper methods that provide boilerplate socket I/O and Connection
-    processing.
-"""
 
 
 def read_socket_input(connection, socket_obj):
