@@ -82,7 +82,6 @@ class _Link(object):
         self._user_context = ctxt
 
     _uc_docstr = """Arbitrary application object associated with this link."""
-
     user_context = property(_get_user_context, _set_user_context,
                             doc=_uc_docstr)
 
