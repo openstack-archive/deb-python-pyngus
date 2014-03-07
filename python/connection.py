@@ -51,7 +51,7 @@ class ConnectionEventHandler(object):
 
     def sender_requested(self, connection, link_handle,
                          name, requested_source,
-                         properties=None):
+                         properties):
         """Peer has requested a SenderLink be created."""
         # call accept_sender to accept new link,
         # reject_sender to reject it.
@@ -147,8 +147,9 @@ class Connection(object):
                 self._pn_transport.trace(proton.Transport.TRACE_FRM)
 
         # indexed by link-name
-        self._sender_links = {}    # SenderLink or pn_link if pending
-        self._receiver_links = {}  # ReceiverLink or pn_link if pending
+        self._sender_links = {}    # SenderLink
+        self._receiver_links = {}  # ReceiverLink
+        self._work_queue = set()   # either, in need of processing
 
         self._read_done = False
         self._write_done = False
@@ -240,33 +241,9 @@ class Connection(object):
         self._pn_transport = None
         self._user_context = None
 
-    def _link_requested(self, pn_link):
-        if pn_link.is_sender and pn_link.name not in self._sender_links:
-            LOG.debug("Remotely initiated Sender needs init")
-            self._sender_links[pn_link.name] = pn_link
-            pn_link.context = None  # TODO(kgiusti) update proton.py
-            req_source = ""
-            if pn_link.remote_source.dynamic:
-                req_source = None
-            elif pn_link.remote_source.address:
-                req_source = pn_link.remote_source.address
-            self._handler.sender_requested(self, pn_link.name,
-                                           pn_link.name, req_source,
-                                           {"target-address":
-                                            pn_link.remote_target.address})
-        elif pn_link.is_receiver and pn_link.name not in self._receiver_links:
-            LOG.debug("Remotely initiated Receiver needs init")
-            self._receiver_links[pn_link.name] = pn_link
-            pn_link.context = None  # TODO(kgiusti) update proton.py
-            req_target = ""
-            if pn_link.remote_target.dynamic:
-                req_target = None
-            elif pn_link.remote_target.address:
-                req_target = pn_link.remote_target.address
-            self._handler.receiver_requested(self, pn_link.name,
-                                             pn_link.name, req_target,
-                                             {"source-address":
-                                              pn_link.remote_source.address})
+    def _add_work(self, link):
+        """Add the link to the work queue."""
+        self._work_queue.add(link)
 
     _REMOTE_REQ = (proton.Endpoint.LOCAL_UNINIT
                    | proton.Endpoint.REMOTE_ACTIVE)
@@ -315,78 +292,40 @@ class Connection(object):
 
         pn_link = self._pn_connection.link_head(self._REMOTE_REQ)
         while pn_link:
-            next_link = pn_link.next(self._LOCAL_UNINIT)
+            if (pn_link.is_sender and
+                pn_link.name not in self._sender_links):
+                LOG.debug("Remotely initiated Sender needs init")
+                link = SenderLink(self, pn_link)
+                self._sender_links[pn_link.name] = link
+                self._add_work(link)
+            elif (pn_link.is_receiver and
+                  pn_link.name not in self._receiver_links):
+                LOG.debug("Remotely initiated Receiver needs init")
+                link = ReceiverLink(self, pn_link)
+                self._receiver_links[pn_link.name] = link
+                self._add_work(link)
+            else:
+                LOG.debug("Ignoring request link - name in use %s",
+                          pn_link.name)
+            pn_link = pn_link.next(self._REMOTE_REQ)
 
-            if pn_link.state == self._REMOTE_REQ:
-                self._link_requested(pn_link)
-
-            pn_link = next_link
-
-        # TODO(kgiusti) won't scale?
+        # TODO(kgiusti) won't scale - use new Enging event API
         pn_link = self._pn_connection.link_head(self._ACTIVE)
         while pn_link:
-            next_link = pn_link.next(self._ACTIVE)
-
-            if pn_link.context and not pn_link.context._active:
-                LOG.debug("Link is up")
-                pn_link.context._active = True
-                if pn_link.is_sender:
-                    sender_link = pn_link.context
-                    if sender_link._handler:
-                        sender_link._handler.sender_active(sender_link)
-                else:
-                    receiver_link = pn_link.context
-                    if receiver_link._handler:
-                        receiver_link._handler.receiver_active(receiver_link)
-            pn_link = next_link
-
-        # process the work queue
-
-        pn_delivery = self._pn_connection.work_head
-        while pn_delivery:
-            next_delivery = pn_delivery.work_next
-            if pn_delivery.link.context:
-                if pn_delivery.link.is_sender:
-                    sender_link = pn_delivery.link.context
-                    sender_link._delivery_updated(pn_delivery)
-                else:
-                    receiver_link = pn_delivery.link.context
-                    receiver_link._delivery_updated(pn_delivery)
-            pn_delivery = next_delivery
+            self._add_work(pn_link.context)
+            pn_link = pn_link.next(self._ACTIVE)
 
         # do endpoint down handling:
 
         pn_link = self._pn_connection.link_head(self._REMOTE_CLOSE)
         while pn_link:
-            LOG.debug("Link closed remotely")
-            next_link = pn_link.next(self._REMOTE_CLOSE)
-            # TODO(kgiusti) error reporting
-            if pn_link.context:
-                if pn_link.is_sender:
-                    sender_link = pn_link.context
-                    handler = pn_link.context._handler
-                    if handler:
-                        handler.sender_remote_closed(sender_link, None)
-                else:
-                    receiver_link = pn_link.context
-                    handler = pn_link.context._handler
-                    if handler:
-                        handler.receiver_remote_closed(receiver_link, None)
-            pn_link = next_link
+            self._add_work(pn_link.context)
+            pn_link = pn_link.next(self._REMOTE_CLOSE)
 
         pn_link = self._pn_connection.link_head(self._CLOSED)
         while pn_link:
-            next_link = pn_link.next(self._CLOSED)
-            if pn_link.context and pn_link.context._active:
-                LOG.debug("Link close completed")
-                pn_link.context._active = False
-                if pn_link.is_sender:
-                    sender_link = pn_link.context
-                    sender_link._handler.sender_closed(sender_link)
-                else:
-                    receiver_link = pn_link.context
-                    receiver_link._handler.receiver_closed(receiver_link)
-            pn_link = next_link
+            self._add_work(pn_link.context)
+            pn_link = pn_link.next(self._CLOSED)
 
         pn_session = self._pn_connection.session_head(self._REMOTE_CLOSE)
         while pn_session:
@@ -400,6 +339,19 @@ class Connection(object):
         elif self._pn_connection.state == self._CLOSED:
             LOG.debug("Connection close complete")
             self._handler.connection_closed(self)
+
+        # service links needing attention:
+        while self._work_queue:
+            link = self._work_queue.pop()
+            link._process()
+
+        # process the delivery work queue
+
+        pn_delivery = self._pn_connection.work_head
+        while pn_delivery:
+            next_delivery = pn_delivery.work_next
+            pn_delivery.link.context._process_delivery(pn_delivery)
+            pn_delivery = next_delivery
 
         # DEBUG LINK "LEAK"
         # count = 0
@@ -500,36 +452,32 @@ class Connection(object):
             raise KeyError("Sender %s already exists!" % ident)
 
         pn_link = self._pn_session.sender(ident)
-        if pn_link:
-            s = SenderLink(self, pn_link,
-                           source_address, target_address,
-                           event_handler, properties)
-            self._sender_links[ident] = s
-            return s
-        return None
+        sl = SenderLink(self, pn_link)
+        sl.configure(target_address, source_address, event_handler, properties)
+        self._sender_links[ident] = sl
+        return sl
 
     def accept_sender(self, link_handle, source_override=None,
                       event_handler=None, properties=None):
-        pn_link = self._sender_links.get(link_handle)
-        if not pn_link or not isinstance(pn_link, proton.Sender):
+        link = self._sender_links.get(link_handle)
+        if not link:
             raise Exception("Invalid link_handle: %s" % link_handle)
+        pn_link = link._pn_link
         if pn_link.remote_source.dynamic and not source_override:
             raise Exception("A source address must be supplied!")
         source_addr = source_override or pn_link.remote_source.address
-        link = SenderLink(self, pn_link,
-                          source_addr,
-                          pn_link.remote_target.address,
-                          event_handler, properties)
-        self._sender_links[link_handle] = link
+        link.configure(pn_link.remote_target.address,
+                       source_addr,
+                       event_handler, properties)
         return link
 
     def reject_sender(self, link_handle, reason):
-        pn_link = self._sender_links.get(link_handle)
-        if not pn_link or not isinstance(pn_link, proton.Sender):
+        """Rejects the SenderLink, and destroys the handle."""
+        link = self._sender_links.get(link_handle)
+        if not link:
             raise Exception("Invalid link_handle: %s" % link_handle)
-        del self._sender_links[link_handle]
-        # TODO(kgiusti) support reason for close
-        pn_link.close()
+        link.reject(reason)
+        link.destroy()
 
     def create_receiver(self, target_address, source_address=None,
                         event_handler=None, name=None, properties=None):
@@ -539,35 +487,31 @@ class Connection(object):
             raise KeyError("Receiver %s already exists!" % ident)
 
         pn_link = self._pn_session.receiver(ident)
-        if pn_link:
-            r = ReceiverLink(self, pn_link, target_address,
-                             source_address, event_handler, properties)
-            self._receiver_links[ident] = r
-            return r
-        return None
+        rl = ReceiverLink(self, pn_link)
+        rl.configure(target_address, source_address, event_handler, properties)
+        self._receiver_links[ident] = rl
+        return rl
 
     def accept_receiver(self, link_handle, target_override=None,
                         event_handler=None, properties=None):
-        pn_link = self._receiver_links.get(link_handle)
-        if not pn_link or not isinstance(pn_link, proton.Receiver):
+        link = self._receiver_links.get(link_handle)
+        if not link:
             raise Exception("Invalid link_handle: %s" % link_handle)
+        pn_link = link._pn_link
         if pn_link.remote_target.dynamic and not target_override:
             raise Exception("A target address must be supplied!")
         target_addr = target_override or pn_link.remote_target.address
-        link = ReceiverLink(self, pn_link,
-                            target_addr,
-                            pn_link.remote_source.address,
-                            event_handler, properties)
-        self._receiver_links[link_handle] = link
+        link.configure(target_addr,
+                       pn_link.remote_source.address,
+                       event_handler, properties)
         return link
 
     def reject_receiver(self, link_handle, reason):
-        pn_link = self._receiver_links.get(link_handle)
-        if not pn_link or not isinstance(pn_link, proton.Receiver):
+        link = self._receiver_links.get(link_handle)
+        if not link:
             raise Exception("Invalid link_handle: %s" % link_handle)
-        del self._receiver_links[link_handle]
-        # TODO(kgiusti) support reason for close
-        pn_link.close()
+        link.reject(reason)
+        link.destroy()
 
     def _remove_sender(self, name):
         if name in self._sender_links:
