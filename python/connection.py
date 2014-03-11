@@ -25,6 +25,8 @@ import time
 
 from link import ReceiverLink
 from link import SenderLink
+from link import _SessionProxy
+
 import proton
 
 
@@ -135,7 +137,6 @@ class Connection(object):
         self._pn_connection.container = container.name
         self._pn_transport = proton.Transport()
         self._pn_transport.bind(self._pn_connection)
-        self._pn_session = None
 
         if properties:
             if 'hostname' in properties:
@@ -212,15 +213,12 @@ class Connection(object):
 
     def open(self):
         self._pn_connection.open()
-        self._pn_session = self._pn_connection.session()
-        self._pn_session.open()
 
     def close(self, error=None):
         for link in self._sender_links.itervalues():
             link.close(error)
         for link in self._receiver_links.itervalues():
             link.close(error)
-        self._pn_session.close()
         self._pn_connection.close()
 
     @property
@@ -287,21 +285,23 @@ class Connection(object):
         pn_session = self._pn_connection.session_head(self._LOCAL_UNINIT)
         while pn_session:
             LOG.debug("Opening remotely initiated session")
-            pn_session.open()
+            session = _SessionProxy(self, pn_session)
+            session.open()
             pn_session = pn_session.next(self._LOCAL_UNINIT)
 
         pn_link = self._pn_connection.link_head(self._REMOTE_REQ)
         while pn_link:
+            session = pn_link.session.context
             if (pn_link.is_sender and
                 pn_link.name not in self._sender_links):
                 LOG.debug("Remotely initiated Sender needs init")
-                link = SenderLink(self, pn_link)
+                link = session.request_sender(pn_link)
                 self._sender_links[pn_link.name] = link
                 self._add_work(link)
             elif (pn_link.is_receiver and
                   pn_link.name not in self._receiver_links):
                 LOG.debug("Remotely initiated Receiver needs init")
-                link = ReceiverLink(self, pn_link)
+                link = session.request_receiver(pn_link)
                 self._receiver_links[pn_link.name] = link
                 self._add_work(link)
             else:
@@ -343,7 +343,7 @@ class Connection(object):
         # service links needing attention:
         while self._work_queue:
             link = self._work_queue.pop()
-            link._process()
+            link._process_endpoints()
 
         # process the delivery work queue
 
@@ -451,8 +451,9 @@ class Connection(object):
         if ident in self._sender_links:
             raise KeyError("Sender %s already exists!" % ident)
 
-        pn_link = self._pn_session.sender(ident)
-        sl = SenderLink(self, pn_link)
+        session = _SessionProxy(self)
+        session.open()
+        sl = session.new_sender(ident)
         sl.configure(target_address, source_address, event_handler, properties)
         self._sender_links[ident] = sl
         return sl
@@ -486,8 +487,9 @@ class Connection(object):
         if ident in self._receiver_links:
             raise KeyError("Receiver %s already exists!" % ident)
 
-        pn_link = self._pn_session.receiver(ident)
-        rl = ReceiverLink(self, pn_link)
+        session = _SessionProxy(self)
+        session.open()
+        rl = session.new_receiver(ident)
         rl.configure(target_address, source_address, event_handler, properties)
         self._receiver_links[ident] = rl
         return rl

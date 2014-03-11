@@ -135,17 +135,20 @@ class MyConnection(fusion.ConnectionEventHandler):
         LOG.error("Connection failed! error=%s", str(error))
         raise Exception("Connection failure: %s" % str(error))
 
-    def sender_requested(self, connection, link_handle,
+    def sender_requested(self, connection, link_handle, name,
                          requested_source, properties):
         # call accept_sender to accept new link,
         # reject_sender to reject it.
         assert False, "Not expected"
 
-    def receiver_requested(self, connection, link_handle,
+    def receiver_requested(self, connection, link_handle, name,
                            requested_target, properties):
         # call accept_sender to accept new link,
         # reject_sender to reject it.
         assert False, "Not expected"
+
+    def sasl_step(self, connection, pn_sasl):
+        LOG.debug("sasl_step")
 
     def sasl_done(self, connection, result):
         LOG.debug("SASL done, result=%s", str(result))

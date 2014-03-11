@@ -28,131 +28,14 @@ import proton
 
 LOG = logging.getLogger(__name__)
 
-# link lifecycle state:
-_STATE_UNINIT = 0  # initial state
-_STATE_PENDING = 1  # waiting for remote to open
-_STATE_REQUESTED = 2  # waiting for local to open
-_STATE_ACTIVE = 3
-_STATE_NEED_CLOSE = 4  # remote initiated close
-_STATE_CLOSING = 5  # locally closed, pending remote
-_STATE_CLOSED = 6  # terminal state
-
-# proton endpoint states:
-_LOCAL_UNINIT = proton.Endpoint.LOCAL_UNINIT
-_LOCAL_ACTIVE = proton.Endpoint.LOCAL_ACTIVE
-_LOCAL_CLOSED = proton.Endpoint.LOCAL_CLOSED
-_REMOTE_UNINIT = proton.Endpoint.REMOTE_UNINIT
-_REMOTE_ACTIVE = proton.Endpoint.REMOTE_ACTIVE
-_REMOTE_CLOSED = proton.Endpoint.REMOTE_CLOSED
-
-def _do_pending(link):
-    """The application has opened a new link."""
-    # nothing to do but wait for the remote:
-    return _STATE_PENDING
-
-def _do_requested(link):
-    """The peer has requested a new link be created."""
-    LOG.debug("Remote has initiated a link")
-    pn_link = link._pn_link
-    if isinstance(link, SenderLink):
-        # has the remote requested a source address?
-        req_source = ""
-        if pn_link.remote_source.dynamic:
-            req_source = None
-        elif pn_link.remote_source.address:
-            req_source = pn_link.remote_source.address
-        handler = link._connection._handler
-        if handler:
-            handler.sender_requested(link._connection,
-                                     pn_link.name,  # handle
-                                     pn_link.name,
-                                     req_source,
-                                     {"target-address":
-                                      pn_link.remote_target.address})
-    else:
-        # has the remote requested a target address?
-        req_target = ""
-        if pn_link.remote_target.dynamic:
-            req_target = None
-        elif pn_link.remote_target.address:
-            req_target = pn_link.remote_target.address
-        handler = link._connection._handler
-        if handler:
-            handler.receiver_requested(link._connection,
-                                       pn_link.name,  # handle
-                                       pn_link.name,
-                                       req_target,
-                                       {"source-address":
-                                        pn_link.remote_source.address})
-    return _STATE_REQUESTED
-
-def _do_active(link):
-    """Both ends of the link have become active."""
-    LOG.debug("Link is up")
-    if link._handler:
-        if isinstance(link, SenderLink):
-            link._handler.sender_active(link)
-        else:
-            link._handler.receiver_active(link)
-    return _STATE_ACTIVE
-
-def _do_need_close(link):
-    """The remote has closed its end of the link."""
-    # TODO(kgiusti) error reporting
-    LOG.debug("Link remote closed")
-    if link._handler:
-        if isinstance(link, SenderLink):
-            link._handler.sender_remote_closed(link, None)
-        else:
-            link._handler.receiver_remote_closed(link, None)
-    return _STATE_NEED_CLOSE
-
-def _do_closing(link):
-    """Locally closed, remote end still active."""
-    # nothing to do but wait for the remote
-    return _STATE_CLOSING
-
-def _do_closed(link):
-    """Both ends of the link have closed."""
-    LOG.debug("Link close completed")
-    if link._handler:
-        if isinstance(link, SenderLink):
-            link._handler.sender_closed(link)
-        else:
-            link._handler.receiver_closed(link)
-    return _STATE_CLOSED
-
-# Given the current endpoint state for the link, move to the next state do any
-# state-specific processing:
-_EP_STATE_MACHINE = [
-    # _STATE_UNINIT:
-    {(_LOCAL_ACTIVE | _REMOTE_UNINIT): _do_pending,
-     (_LOCAL_UNINIT | _REMOTE_ACTIVE): _do_requested},
-    # _STATE_PENDING:
-    {(_LOCAL_ACTIVE | _REMOTE_ACTIVE): _do_active,
-     (_LOCAL_ACTIVE | _REMOTE_CLOSED): _do_need_close,
-     (_LOCAL_CLOSED | _REMOTE_UNINIT): _do_closed,
-     (_LOCAL_CLOSED | _REMOTE_CLOSED): _do_closed},
-    # _STATE_REQESTED:
-    {(_LOCAL_ACTIVE | _REMOTE_ACTIVE): _do_active,
-     (_LOCAL_CLOSED | _REMOTE_ACTIVE): _do_closing,
-     (_LOCAL_ACTIVE | _REMOTE_CLOSED): _do_need_close},
-    # _STATE_ACTIVE:
-    {(_LOCAL_ACTIVE | _REMOTE_CLOSED): _do_need_close,
-     (_LOCAL_CLOSED | _REMOTE_ACTIVE): _do_closing,
-     (_LOCAL_CLOSED | _REMOTE_CLOSED): _do_closed},
-    # _STATE_NEED_CLOSE:
-    {(_LOCAL_CLOSED | _REMOTE_CLOSED): _do_closed},
-    # _STATE_CLOSING:
-    {(_LOCAL_CLOSED | _REMOTE_CLOSED): _do_closed}]
-
 class _Link(object):
     """A generic Link base class."""
 
     def __init__(self, connection, pn_link):
-        self._state = _STATE_UNINIT
+        self._state = _Link._STATE_UNINIT
         # last known endpoint state:
-        self._ep_state = _LOCAL_UNINIT | _REMOTE_UNINIT
+        self._ep_state = (proton.Endpoint.LOCAL_UNINIT |
+                          proton.Endpoint.REMOTE_UNINIT)
         self._connection = connection
         self._name = pn_link.name
         self._handler = None
@@ -251,20 +134,131 @@ class _Link(object):
             self._pn_link.free()
             self._pn_link = None
 
-    def _process(self):
-        """Link state machine processing."""
-        # check for transitions in Endpoint state:
-        pn_link = self._pn_link
-        if self._state != _STATE_CLOSED:
-            ep_state = pn_link.state
-            if ep_state != self._ep_state:
-                LOG.debug("link state: %s old ep: %s new ep: %s",
-                          self._state, hex(self._ep_state), hex(ep_state))
-                self._ep_state = ep_state
-                self._state = _EP_STATE_MACHINE[self._state][ep_state](self)
+    ## Link State Machine
+
+    # Link States:  (note: keep in sync with _STATE_MAP below!)
+    _STATE_UNINIT = 0  # initial state
+    _STATE_PENDING = 1  # waiting for remote to open
+    _STATE_REQUESTED = 2  # waiting for local to open
+    _STATE_CANCELLED = 3  # remote closed requested link before accepted
+    _STATE_ACTIVE = 4
+    _STATE_NEED_CLOSE = 5  # remote initiated close
+    _STATE_CLOSING = 6  # locally closed, pending remote
+    _STATE_CLOSED = 7  # terminal state
+    _STATE_REJECTED = 8  # terminal state, automatic link cleanup
+
+    # Events:
+    _LOCAL_ACTIVE = 1
+    _LOCAL_CLOSED = 2
+    _REMOTE_ACTIVE = 3
+    _REMOTE_CLOSED = 4
+
+    # state entry actions - link type specific:
+
+    @staticmethod
+    def _fsm_active(link):
+        """Both ends of the link have become active."""
+        link._do_active()
+
+    @staticmethod
+    def _fsm_need_close(link):
+        """The remote has closed its end of the link."""
+        link._do_need_close()
+
+    @staticmethod
+    def _fsm_closed(link):
+        """Both ends of the link have closed."""
+        link._do_closed()
+
+    @staticmethod
+    def _fsm_requested(link):
+        """Remote has created a new link."""
+        link._do_requested()
+
+    def _process_endpoints(self):
+        """Process any changes in link endpoint state."""
+        LOCAL_MASK = (proton.Endpoint.LOCAL_UNINIT |
+                      proton.Endpoint.LOCAL_ACTIVE |
+                      proton.Endpoint.LOCAL_CLOSED)
+        REMOTE_MASK = (proton.Endpoint.REMOTE_UNINIT |
+                       proton.Endpoint.REMOTE_ACTIVE |
+                       proton.Endpoint.REMOTE_CLOSED)
+        new_state = self._pn_link.state
+        old_state = self._ep_state
+        fsm = _Link._STATE_MAP[self._state]
+        if ((new_state & LOCAL_MASK) != (old_state & LOCAL_MASK)):
+            event = None
+            if new_state & proton.Endpoint.LOCAL_ACTIVE:
+                event = _Link._LOCAL_ACTIVE
+            elif new_state & proton.Endpoint.LOCAL_CLOSED:
+                event = _Link._LOCAL_CLOSED
+            if event:
+                entry = fsm.get(event)
+                if entry:
+                    LOG.debug("Old State: %d Event %d New State: %d",
+                              self._state, event, entry[0])
+                    self._state = entry[0]
+                    if entry[1]:
+                        entry[1](self)
+
+        if ((new_state & REMOTE_MASK) != (old_state & REMOTE_MASK)):
+            event = None
+            if new_state & proton.Endpoint.REMOTE_ACTIVE:
+                event = _Link._REMOTE_ACTIVE
+            elif new_state & proton.Endpoint.REMOTE_CLOSED:
+                event = _Link._REMOTE_CLOSED
+            if event:
+                entry = fsm.get(event)
+                if entry:
+                    LOG.debug("Old State: %d Event %d New State: %d",
+                              self._state, event, entry[0])
+                    self._state = entry[0]
+                    if entry[1]:
+                        entry[1](self)
+        self._ep_state = new_state
 
     def _process_delivery(self, pn_delivery):
-        pass
+        raise NotImplementedError("Must Override")
+
+    def _process_credit(self):
+        raise NotImplementedError("Must Override")
+
+    def _session_closed(self):
+        """Remote has closed the session used by this link."""
+        fsm = _Link._STATE_MAP[self._state]
+        entry = fsm.get(_Link._REMOTE_CLOSED)
+        if entry:
+            self._state = entry[1]
+            if entry[0]:
+                entry[0](self)
+
+_Link._STATE_MAP = [  # {event: (next-state, action), ...}
+    # _STATE_UNINIT:
+    {_Link._LOCAL_ACTIVE:  (_Link._STATE_PENDING,    None),
+     _Link._REMOTE_ACTIVE: (_Link._STATE_REQUESTED,  _Link._fsm_requested),
+     _Link._REMOTE_CLOSED: (_Link._STATE_NEED_CLOSE, _Link._fsm_need_close)},
+    # _STATE_PENDING:
+    {_Link._LOCAL_CLOSED:  (_Link._STATE_CLOSING,    None),
+     _Link._REMOTE_ACTIVE: (_Link._STATE_ACTIVE,     _Link._fsm_active),
+     _Link._REMOTE_CLOSED: (_Link._STATE_NEED_CLOSE, _Link._fsm_need_close)},
+    # _STATE_REQUESTED:
+    {_Link._LOCAL_CLOSED:  (_Link._STATE_REJECTED,   None),
+     _Link._LOCAL_ACTIVE:  (_Link._STATE_ACTIVE,     _Link._fsm_active),
+     _Link._REMOTE_CLOSED: (_Link._STATE_CANCELLED,  None)},
+    #_STATE_CANCELLED:
+    {_Link._LOCAL_CLOSED:  (_Link._STATE_REJECTED,   None),
+     _Link._LOCAL_ACTIVE:  (_Link._STATE_NEED_CLOSE, _Link._fsm_need_close)},
+    #_STATE_ACTIVE:
+    {_Link._LOCAL_CLOSED:  (_Link._STATE_CLOSING,    None),
+     _Link._REMOTE_CLOSED: (_Link._STATE_NEED_CLOSE, _Link._fsm_need_close)},
+    #_STATE_NEED_CLOSE:
+    {_Link._LOCAL_CLOSED:  (_Link._STATE_CLOSED,     _Link._fsm_closed)},
+    #_STATE_CLOSING:
+    {_Link._REMOTE_CLOSED: (_Link._STATE_CLOSED,     _Link._fsm_closed)},
+    #_STATE_CLOSED:
+    {},
+    #_STATE_REJECTED:
+    {}]
 
 class SenderEventHandler(object):
     def sender_active(self, sender_link):
@@ -275,6 +269,9 @@ class SenderEventHandler(object):
 
     def sender_closed(self, sender_link):
         LOG.debug("sender_closed (ignored)")
+
+    def credit_granted(self, sender_link):
+        LOG.debug("credit_granted (ignored)")
 
 
 class SenderLink(_Link):
@@ -295,6 +292,7 @@ class SenderLink(_Link):
         self._pending_acks = {}
         self._next_deadline = 0
         self._next_tag = 0
+        self._last_credit = 0
 
         # TODO(kgiusti) - think about send-settle-mode configuration
 
@@ -379,6 +377,14 @@ class SenderLink(_Link):
                 # what else is there???
                 pn_delivery.settle()
 
+    def _process_credit(self):
+        # Alert if credit has become available
+        if self._handler:
+            new_credit = self._pn_link.credit()
+            if self._last_credit <= 0 and new_credit > 0:
+                self._handler.credit_granted(self)
+            self._last_credit = new_credit
+
     def _write_msg(self, pn_delivery, send_req):
         # given a writable delivery, send a message
         # send_req = (msg, cb, handle, deadline)
@@ -394,6 +400,42 @@ class SenderLink(_Link):
         else:
             # no status required, so settle it now.
             pn_delivery.settle()
+
+    # state machine actions:
+
+    def _do_active(self):
+        LOG.debug("Link is up")
+        if self._handler:
+            self._handler.sender_active(self)
+
+    def _do_need_close(self):
+        # TODO(kgiusti) error reporting
+        LOG.debug("Link remote closed")
+        if self._handler:
+            self._handler.sender_remote_closed(self, None)
+
+    def _do_closed(self):
+        LOG.debug("Link close completed")
+        if self._handler:
+            self._handler.sender_closed(self)
+
+    def _do_requested(self):
+        LOG.debug("Remote has initiated a link")
+        pn_link = self._pn_link
+        # has the remote requested a source address?
+        req_source = ""
+        if pn_link.remote_source.dynamic:
+            req_source = None
+        elif pn_link.remote_source.address:
+            req_source = pn_link.remote_source.address
+        handler = self._connection._handler
+        if handler:
+            handler.sender_requested(self._connection,
+                                     pn_link.name,  # handle
+                                     pn_link.name,
+                                     req_source,
+                                     {"target-address":
+                                      pn_link.remote_target.address})
 
 
 class ReceiverEventHandler(object):
@@ -476,3 +518,82 @@ class ReceiverLink(_Link):
         pn_delivery = self._unsettled_deliveries.pop(handle)
         pn_delivery.update(result)
         pn_delivery.settle()
+
+    def _process_credit(self):
+        # Only used by SenderLink
+        pass
+
+    # state machine actions:
+
+    def _do_active(self):
+        LOG.debug("Link is up")
+        if self._handler:
+            self._handler.receiver_active(self)
+
+    def _do_need_close(self):
+        LOG.debug("Link remote closed")
+        if self._handler:
+            self._handler.receiver_remote_closed(self, None)
+
+    def _do_closed(self):
+        LOG.debug("Link close completed")
+        if self._handler:
+            self._handler.receiver_closed(self)
+
+    def _do_requested(self):
+        LOG.debug("Remote has initiated a ReceiverLink")
+        pn_link = self._pn_link
+        # has the remote requested a target address?
+        req_target = ""
+        if pn_link.remote_target.dynamic:
+            req_target = None
+        elif pn_link.remote_target.address:
+            req_target = pn_link.remote_target.address
+        handler = self._connection._handler
+        if handler:
+            handler.receiver_requested(self._connection,
+                                       pn_link.name,  # handle
+                                       pn_link.name,
+                                       req_target,
+                                       {"source-address":
+                                        pn_link.remote_source.address})
+
+class _SessionProxy(object):
+    """Corresponds to a Proton Session object."""
+    def __init__(self, connection, pn_session=None):
+        self._locally_initiated = not pn_session
+        self._connection = connection
+        if not pn_session:
+            pn_session = connection._pn_connection.session()
+        self._pn_session = pn_session
+        self._links = set()
+        pn_session.context = self
+
+    def open(self):
+        self._pn_session.open()
+
+    def new_sender(self, name):
+        """Create a new sender link."""
+        pn_link = self._pn_session.sender(name)
+        return self.request_sender(pn_link)
+
+    def request_sender(self, pn_link):
+        """Create link from request for a sender."""
+        sl = SenderLink(self._connection, pn_link)
+        self._links.add(sl)
+        return sl
+
+    def new_receiver(self, name):
+        """Create a new receiver link."""
+        pn_link = self._pn_session.receiver(name)
+        return self.request_receiver(pn_link)
+
+    def request_receiver(self, pn_link):
+        """Create link from request for a receiver."""
+        rl = ReceiverLink(self._connection, pn_link)
+        self._links.add(rl)
+        return rl
+
+    @property
+    def link_count(self):
+        return len(self._links)
