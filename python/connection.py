@@ -23,8 +23,6 @@ __all__ = [
 import logging
 import time
 
-from link import ReceiverLink
-from link import SenderLink
 from link import _SessionProxy
 
 import proton
@@ -309,7 +307,7 @@ class Connection(object):
                           pn_link.name)
             pn_link = pn_link.next(self._REMOTE_REQ)
 
-        # TODO(kgiusti) won't scale - use new Enging event API
+        # TODO(kgiusti) won't scale - use new Engine event API
         pn_link = self._pn_connection.link_head(self._ACTIVE)
         while pn_link:
             self._add_work(pn_link.context)
@@ -330,8 +328,10 @@ class Connection(object):
         pn_session = self._pn_connection.session_head(self._REMOTE_CLOSE)
         while pn_session:
             LOG.debug("Session closed remotely")
-            pn_session.close()
-            pn_session = pn_session.next(self._REMOTE_CLOSE)
+            next_session = pn_session.next(self._REMOTE_CLOSE)
+            session = pn_session.context
+            session.remote_closed()
+            pn_session = next_session
 
         if self._pn_connection.state == self._REMOTE_CLOSE:
             LOG.debug("Connection remotely closed")
