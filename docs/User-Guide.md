@@ -1,15 +1,18 @@
-# fusion #
+# The Project Formerly Known As Fusion #
 
-A connection oriented messaging framework built around the QPID Proton engine.
+A callback-based messaging framework built around the QPID Proton
+engine.
 
 # Purpose #
 
 This framework is meant to ease the integration of AMQP 1.0 messaging
-into existing applications.  It provides a very basic,
-connection-oriented messaging model that should meet the needs of most
-applications.
+into applications that use a callback-based logic flow.  It provides a
+very basic, connection-oriented messaging model that should meet the
+needs of most applications.
 
 The framework has been designed with the following goals in mind:
+
+* provide a callback-based messaging API
 
 * simplify the user model exported by the Proton engine - you should
 not have to be an expert in AMQP to use this framework!
@@ -20,131 +23,212 @@ not have to be an expert in AMQP to use this framework!
 * limit the functionality provided by Proton to a subset that
 should be adequate for 79% of all messaging use-cases [1]
 
-
 All actions are designed to be non-blocking,
 leveraging callbacks where asynchronous behavior is modeled.
 
 There is no threading architecture assumed or locking performed by
 this framework.  Locking is assumed to be handled outside of this
 framework by the application - all processing provided by this
-framework is assumed to be single-threaded.
+framework is assumed to be single-threaded [2].
 
-[1] If I don't understand it, it won't be provided. [2]  
-[2] Even if I do understand it, it may not be provided [3]  
-[3] Ask yourself: Is this feature *critical* for the simplest messaging task?
+[1] Unlike the Proton Engine, this framework does not intend to
+support all functionality and features defined by the AMQP 1.0
+protocol. It is only intended to provide basic message passing
+functionality.
+
+[2] Not entirely true - it may be possible to multithread as long as
+connections are not shared across threads.  TBD
+
 
 ## What this framework doesn't do ##
 
-* Message management.  All messages are assumed to be Proton Messages.
-  Creating and parsing Messages is left to the application.
+* __Message management__ - All messages are assumed to be Proton
+  Messages.  Creating and parsing Messages is left to the application.
 
-* Routing. This framework assumes link-based addressing.  What does
-  that mean?  It means that this infrastructure basically ignores the
-  "to" or "reply-to" contained in the message.  It leaves these fields
-  under the control and interpretation of the application.  This
-  infrastructure requires that the application determines the proper
-  Link over which to send an outgoing message.  In addition, it assumes
-  the application can correlate messages arriving on a link.
+* __Routing__ - This framework basically ignores the "to" or "reply-to"
+  contained in the message.  It leaves these fields under the control
+  and interpretation of the application.  This means that the
+  application determines the proper Link over which to send an
+  outgoing message.  In addition, it assumes the application can
+  dispatch messages arriving on a link to the proper handler [3].
 
-* Connection management.  It is expected that your application will
+* __Connection management__ - It is expected that your application will
   manage the creation and configuration of sockets. Whether those
   sockets are created by initiating a connection or accepting an
-  inbound connection is irrelevant to the framework.  It is also
+  inbound connection is irrelevant to this framework.  It is also
   assumed that, if desired, your application will be responsible for
   monitoring the sockets for I/O activity (e.g. call poll()).  The
   framework will support both blocking and non-blocking sockets,
   however it may block when doing I/O over a blocking socket.  Note
-  well: reconnect and failover must also be handled by the application.
+  well: reconnect and failover must also be handled by the application
+  [3].
 
-* Flow control. It is assumed the application will control the number
-  of messages that can be accepted by a receiving link (capacity).
-  Sent messages will be queued locally until credit is made availble
-  for the message(s) to be transmitted.  The framework's API allows
-  the application to monitor the number of outbound messages queued on
-  an outgoing link.
+* __Flow control__ - It is assumed the application will control the
+  number of messages that can be accepted by a receiving link
+  (capacity).  Sent messages will be queued locally until credit is
+  made available for the message(s) to be transmitted.  The framework's
+  API allows the application to monitor the amount of credit available
+  on an outgoing link [3].
 
+[3] All these features are provided by the QPID Messenger API.  The
+Messenger API may be a better match for your application if any of
+these features are required.  See the Messenger section of the [Apache
+QPID website](http://qpid.apache.org/components/messenger/index.html
+"Messenger") for more detail.
 
 # Theory of Operations #
 
 This framework defines the following set of objects:
 
- * Container - an implementation of the container concept defined by AMQP 1.0.
-      An instance must have a name that is unique across the entire
-      messaging domain, as it is used as part of the address.  This
-      object is a factory for Connections.
+ * Container - an implementation of the container concept defined by
+      AMQP 1.0.  An instance must have a name that is unique across
+      the entire messaging domain as it is used as part of the
+      address.  This object is a factory for Connections.
 
- * Connection - an implementation of the connection concept defined by AMQP
-       1.0.  You can think of this as a pipe between two Containers.
-       When creating a Connection, your application must provide a
-       socket (or socket-like object).  That socket will be
-       responsible for handling data travelling over the Connection.
-
- * ResourceAddress - an identifier for a resource provided by a
-       Container.  Messages may be consumed from, or sent to, a
-       resource.
+ * Connection - an implementation of the connection concept defined by
+       AMQP 1.0.  You can think of this as a data pipe between two
+       Containers.  This object is a factory for links.
 
  * Links - A uni-directional pipe for messages traveling between
-       resources.  There are two sub-classes of Links: SenderLinks and
-       ReceiverLinks.  SenderLinks produce messages from a particular
-       resource.  ReceiverLinks consume messages generated from a particular
-       resource.
+       resources (nodes) within a container.  A link exists within a
+       Connection, and uses the Connection as its data path to the
+       remote.  There are two sub-classes of Links: *SenderLinks* and
+       *ReceiverLinks*.  SenderLinks produce messages from a particular
+       node.  ReceiverLinks consume messages on behalf of a local
+       node.
 
 And application creates one or more Containers, which represents a
-domain for a set of message-oriented resources (queues, publishers,
-consumers, etc) offered by the application.  The application then
-forms network connections with other systems that offer their own
-containers.  The application may initiate these network connections
-(eg. call connect()), or listen for connection requests from remote
-systems (eg. listen()/accept()) - this is determined by the
-application's design and purpose.
+domain for a set of message-oriented 'nodes' (queues, publishers,
+consumers, etc) offered by the application.
 
-The method used by the application to determine which systems it
-should connect to in order to access particular resources and
-Containers is left to the application designers.
+The application then forms network connections with other systems that
+offer their own containers.  The application may initiate these
+network connections (eg. call connect()), or listen for connection
+requests from remote systems (eg. listen()/accept()) - this is
+determined by the application's design and purpose. The method used by
+the application to determine which systems it should connect to in
+order to access particular resources and Containers is left to the
+application designers.
 
-Once these network connections are initiated, the application can
-allocate a Connection object from the local Container.  This
-Connection object represents the data pipe between the local and
-remote Containers.  The application must provide a network socket to
-the Connection constructor. This socket is used by the framework for
-communicating over the Connection.
+The application must create a Connection object for each network
+connection it has set up.  A Connection object is allocated from the
+Container, and represents a data pipe between the local and remote
+Containers. The Connection consumes data from, and produces data for,
+its network connection. It is the responsiblity of the application to
+transfer network data between the Connection object and its
+corresponding network connection.
 
-If the application needs to send messages to a resource on the remote
-Container, it allocates a SenderLink from the Connection to the remote
-Container.  The application assigns a local name to the SenderLink
-that identifies the resource that is the source of the sent messages.
-This is the Source resource address, and is made available to the
-remote so it may classify the origin of the message stream.  The
-application may also supply the address of the resource to which it is
-sending.  This is the Target resource address.  The Target resource
-address may be overridden by the remote.  If no Target address is
-given, the remote may allocate one on behalf of the sending
-application.  The SenderLink's final Target address is made available
-to the sending application once the link has completed setup.
+If the application needs to send messages to a node on the remote
+Container, it allocates a SenderLink from the Connection that attaches
+to that remote Container.  The application assigns a local name to the
+SenderLink that identifies the node that is the source of the messages
+sent over it.  This is the Source address, and is made available to
+the remote so it may classify the origin of the message stream.  The
+application may also supply the address of the node to which it is
+sending.  This is the Target node address.  The Target address
+supplied by the sender is merely a hint for the remote application -
+the remote may override this address, and provide the actual Target
+address used by the remote.  If no Target address is given, the remote
+may allocate one on behalf of the sending application.  The
+SenderLink's final Target address is made available to the sending
+application once the link has completed setup.
 
 When sending a message, an application can choose whether or not it
-wants to know about the arrival of the message at the remote resource.
-The application may send the message as "best effort" if it doesn't
-need to know if the message arrived at the remote resource.  This
-'send-and-forget' service provides no feedback on the delivery of the
-message.  Otherwise, the application may register a callback that is
-invoked when the delivery status of the message is updated by the
-remote resource.
+needs to know about the arrival status of the message at the remote
+node.  The application may send the message as "best effort" if it
+doesn't care about the arrival status.  This 'send-and-forget' service
+provides no feedback on the delivery of the message.  Otherwise, the
+application may register a callback that is invoked when the delivery
+status of the message is determined by the framework.
 
-If the application needs to consume messages from a resource on the
-remote Container, it allocates a ReceiverLink from the Connection to
-the remote Container.  The application assigns a local name to the
-ReceiverLink that identifies the local resource that is the consumer
-of all the messages that arrive on the link.  This is the Target
-resource address, and is made available to the remote so it may
+All messages are sent using 'at-most-once' semantics: the framework
+does not attempt to re-send messages on behalf of the application.  If
+reliable messaging is required, the application must implement its own
+retry logic.
+
+If the application needs to consume messages from a node on the remote
+Container, it allocates a ReceiverLink from the Connection that
+attaches to that remote Container.  The application assigns a local
+name to the ReceiverLink that identifies the local node that is the
+consumer of all the messages that arrive on the link.  This is the
+Target node address, and is made available to the remote so it may
 classify the destination of the message stream.  The application may
-also supply the address of the remote resource from which it is
-consuming.  This is the Source resource address.  The Source resource
-address may be overridden by the remote.  If no Source address is
-given, the remote may allocate one on behalf of the receiving
-application.  The ReceiverLink's final Source address is made
-available to the receiving application once the link has completed
-setup.
+also supply the address of the remote node from which it is consuming.
+This is the Source node address.  The Source address supplied by the
+receiver is merely a hint for the remote application - the remote may
+override this address, and provide the actual Source address used by
+the remote.  address may be overridden by the remote.  If no Source
+address is given, the remote may allocate one on behalf of the
+receiving application.  The ReceiverLink's final Source address is
+made available to the receiving application once the link has
+completed setup.
+
+## Callback Events ##
+
+Callbacks are used by the framework to notify the application when
+certain events occur.  Callbacks for various events may be associated
+with the Connection, SenderLink, and ReceiverLink objects.
+
+### Connection Events ###
+
+Callbacks can be registered with an instance of a Connection object.
+These callbacks are invoked on the following events:
+
+* __Connection Active__ - The connection has transitioned to the
+  active state.
+* __Connection Closed__ - The connection has cleanly closed.
+* __Connection Failed__ - The connection has failed.
+* __Connection Remote Closed__ - The peer has initiated the close of
+  the connection.
+* __Sender Requested__ - The peer needs to consume messages from a
+  node in the local container, and is asking your application to
+  create a SenderLink on its behalf.  The intent of this SenderLink is
+  to provide messages for the peer to consume.  The peer may provide
+  the Target address of its consuming node and the Source address of
+  the node it is trying to consume from.
+* __Receiver Requested__ - The peer needs to send messages to a node
+  in the local container and is asking your application to create a
+  ReceiverLink on its behalf.  The intent of this ReceiverLink is to
+  consume the incoming messages from the peer. The peer may provide
+  the Source address of its consuming node and the Target address of
+  the node it is trying to consume from.
+* __SASL Step__ - TBD: intercept the SASL handshake if SASL used.
+* __SASL Done__ - TBD: the result of the SASL handshake.
+
+See the API section for more detail.
+
+### SenderLink Events ###
+
+Callbacks can be registered with an instance of a SenderLink object.
+These callbacks are invoked on the following events:
+
+* __Sender Active__ - The link has transitioned to the active state.
+* __Sender Closed__ - The link has cleanly closed.
+* __Sender Remote Closed__ - The peer has initiated the close of the
+  link.
+* __Sender Credit Granted__ - The peer has made more credit available
+  to the sender.
+
+In addition to the above, a callback can be associated with each
+message sent over the SenderLink.  This callback is used to signal the
+delivery status of the message.
+
+See the API section for more detail.
+
+### ReceiverLink Events ###
+
+Callbacks can be registered with an instance of a ReceiverLink object.
+These callbacks are invoked on the following events:
+
+* __Receiver Active__ - The link has transitioned to the active state.
+* __Receiver Closed__ - The link has cleanly closed.
+* __Receiver Remote Closed__ - The peer has initiated the close of the
+  link.
+* __Message Received__ - A message has arrived from the peer.
+
+See the API section for more detail.
+
+__STOP HERE__
 
 # API #
 
