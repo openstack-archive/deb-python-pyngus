@@ -42,6 +42,11 @@ class Container(object):
         self._handler = event_handler
         self._properties = properties
 
+    def destroy(self):
+        conns = self._connections.values()
+        for conn in conns:
+            conn.destroy()
+
     @property
     def name(self):
         return self._name

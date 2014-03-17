@@ -188,8 +188,13 @@ class Connection(object):
         """
         return self._pn_connection.remote_container
 
-    @property
     # TODO(kgiusti) - think about server side use of sasl!
+    @property
+    def pn_sasl(self):
+        return self.sasl
+
+    # TODO(kgiusti) - deprecate in favor of pn_sasl
+    @property
     def sasl(self):
         if not self._pn_sasl:
             self._pn_sasl = self._pn_transport.sasl()
@@ -267,10 +272,12 @@ class Connection(object):
                                            proton.SASL.STATE_FAIL):
                 LOG.debug("SASL in progress. State=%s",
                           str(self._pn_sasl.state))
-                self._handler.sasl_step(self, self._pn_sasl)
+                if self._handler:
+                    self._handler.sasl_step(self, self._pn_sasl)
                 return
 
-            self._handler.sasl_done(self, self._pn_sasl.outcome)
+            if self._handler:
+                self._handler.sasl_done(self, self._pn_sasl.outcome)
             self._pn_sasl = None
 
         # do endpoint up handling:
@@ -278,7 +285,8 @@ class Connection(object):
         if self._pn_connection.state == self._ACTIVE:
             if not self._active:
                 self._active = True
-                self._handler.connection_active(self)
+                if self._handler:
+                    self._handler.connection_active(self)
 
         pn_session = self._pn_connection.session_head(self._LOCAL_UNINIT)
         while pn_session:
@@ -335,10 +343,13 @@ class Connection(object):
 
         if self._pn_connection.state == self._REMOTE_CLOSE:
             LOG.debug("Connection remotely closed")
-            self._handler.connection_remote_closed(self, None)
+            if self._handler:
+                self._handler.connection_remote_closed(self, None)
         elif self._pn_connection.state == self._CLOSED:
             LOG.debug("Connection close complete")
-            self._handler.connection_closed(self)
+            self._next_tick = 0
+            if self._handler:
+                self._handler.connection_closed(self)
 
         # service links needing attention:
         while self._work_queue:
