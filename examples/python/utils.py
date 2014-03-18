@@ -50,6 +50,21 @@ def connect_socket(host, port, blocking=True):
             raise
     return my_socket
 
+def server_socket(host, port, backlog=10):
+    """Create a TCP listening socket for a server."""
+    addr = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+    if not addr:
+        raise Exception("Could not translate address '%s:%s'" % (host, str(port)))
+    my_socket = socket.socket(addr[0][0], addr[0][1], addr[0][2])
+    my_socket.setblocking(0)  # 0=non-blocking
+    try:
+        my_socket.bind(addr[0][4])
+        my_socket.listen(backlog)
+    except socket.error, e:
+        if e[0] != errno.EINPROGRESS:
+            raise
+    return my_socket
+
 def process_connection(connection, my_socket):
     """Handle I/O and Timers on a single Connection."""
     work = False

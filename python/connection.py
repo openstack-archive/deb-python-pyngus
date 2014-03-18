@@ -148,7 +148,6 @@ class Connection(object):
         # indexed by link-name
         self._sender_links = {}    # SenderLink
         self._receiver_links = {}  # ReceiverLink
-        self._work_queue = set()   # either, in need of processing
 
         self._read_done = False
         self._write_done = False
@@ -242,10 +241,6 @@ class Connection(object):
         self._pn_transport = None
         self._user_context = None
 
-    def _add_work(self, link):
-        """Add the link to the work queue."""
-        self._work_queue.add(link)
-
     _REMOTE_REQ = (proton.Endpoint.LOCAL_UNINIT
                    | proton.Endpoint.REMOTE_ACTIVE)
     _REMOTE_CLOSE = (proton.Endpoint.LOCAL_ACTIVE
@@ -297,41 +292,52 @@ class Connection(object):
 
         pn_link = self._pn_connection.link_head(self._REMOTE_REQ)
         while pn_link:
+            next_pn_link = pn_link.next(self._REMOTE_REQ)
             session = pn_link.session.context
             if (pn_link.is_sender and
                 pn_link.name not in self._sender_links):
                 LOG.debug("Remotely initiated Sender needs init")
                 link = session.request_sender(pn_link)
                 self._sender_links[pn_link.name] = link
-                self._add_work(link)
+                link._process_endpoints()
             elif (pn_link.is_receiver and
                   pn_link.name not in self._receiver_links):
                 LOG.debug("Remotely initiated Receiver needs init")
                 link = session.request_receiver(pn_link)
                 self._receiver_links[pn_link.name] = link
-                self._add_work(link)
+                link._process_endpoints()
             else:
                 LOG.debug("Ignoring request link - name in use %s",
                           pn_link.name)
-            pn_link = pn_link.next(self._REMOTE_REQ)
+            pn_link = next_pn_link
 
         # TODO(kgiusti) won't scale - use new Engine event API
         pn_link = self._pn_connection.link_head(self._ACTIVE)
         while pn_link:
-            self._add_work(pn_link.context)
-            pn_link = pn_link.next(self._ACTIVE)
+            next_pn_link = pn_link.next(self._ACTIVE)
+            pn_link.context._process_endpoints()
+            pn_link = next_pn_link
+
+        # process the delivery work queue
+        pn_delivery = self._pn_connection.work_head
+        while pn_delivery:
+            next_delivery = pn_delivery.work_next
+            pn_delivery.link.context._process_delivery(pn_delivery)
+            pn_delivery = next_delivery
 
         # do endpoint down handling:
 
         pn_link = self._pn_connection.link_head(self._REMOTE_CLOSE)
         while pn_link:
-            self._add_work(pn_link.context)
-            pn_link = pn_link.next(self._REMOTE_CLOSE)
+            next_pn_link = pn_link.next(self._REMOTE_CLOSE)
+            pn_link.context._process_endpoints()
+            pn_link = next_pn_link
 
         pn_link = self._pn_connection.link_head(self._CLOSED)
         while pn_link:
-            self._add_work(pn_link.context)
-            pn_link = pn_link.next(self._CLOSED)
+            next_pn_link = pn_link.next(self._CLOSED)
+            pn_link.context._process_endpoints()
+            pn_link = next_pn_link
 
         pn_session = self._pn_connection.session_head(self._REMOTE_CLOSE)
         while pn_session:
@@ -351,18 +357,6 @@ class Connection(object):
             if self._handler:
                 self._handler.connection_closed(self)
 
-        # service links needing attention:
-        while self._work_queue:
-            link = self._work_queue.pop()
-            link._process_endpoints()
-
-        # process the delivery work queue
-
-        pn_delivery = self._pn_connection.work_head
-        while pn_delivery:
-            next_delivery = pn_delivery.work_next
-            pn_delivery.link.context._process_delivery(pn_delivery)
-            pn_delivery = next_delivery
 
         # DEBUG LINK "LEAK"
         # count = 0

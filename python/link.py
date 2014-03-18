@@ -83,7 +83,6 @@ class _Link(object):
     def open(self):
         LOG.debug("Opening the link.")
         self._pn_link.open()
-        self._connection._add_work(self)
 
     def _get_user_context(self):
         return self._user_context
@@ -118,7 +117,6 @@ class _Link(object):
     def close(self, error=None):
         LOG.debug("Closing the link.")
         self._pn_link.close()
-        self._connection._add_work(self)
 
     @property
     def closed(self):
@@ -325,7 +323,7 @@ class SenderLink(_Link):
         return len(self._pending_sends) + len(self._pending_acks)
 
     def credit(self):
-        return self._pn_link.credit()
+        return self._pn_link.credit
 
     def close(self, error=None):
         while self._pending_sends:

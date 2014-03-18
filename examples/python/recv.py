@@ -17,7 +17,7 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-""" Minimal message send example code."""
+""" Minimal message receive example code."""
 
 import optparse, sys, time, uuid
 import re, socket, select, errno
@@ -32,7 +32,7 @@ from utils import SEND_STATUS
 
 def main(argv=None):
 
-    _usage = """Usage: %prog [options] [message content string]"""
+    _usage = """Usage: %prog [options]"""
     parser = optparse.OptionParser(usage=_usage)
     parser.add_option("-a", dest="server", type="string",
                       default="amqp://0.0.0.0:5672",
@@ -49,10 +49,7 @@ def main(argv=None):
     parser.add_option("--ca",
                       help="Certificate Authority PEM file")
 
-    opts, payload = parser.parse_args(args=argv)
-    if not payload:
-        payload = "Hi There!"
-
+    opts, extra = parser.parse_args(args=argv)
     host, port = get_host_port(opts.server)
     my_socket = connect_socket(host, port)
 
@@ -67,47 +64,46 @@ def main(argv=None):
     if opts.idle_timeout:
         conn_properties["idle-time-out"] = opts.idle_timeout
 
-    connection = container.create_connection("sender",
+    connection = container.create_connection("receiver",
                                              None,  # no events
                                              conn_properties)
     connection.pn_sasl.mechanisms("ANONYMOUS")
     connection.pn_sasl.client()
     connection.open()
 
-    source_address = opts.source_addr or uuid.uuid4().hex
-    sender = connection.create_sender(source_address,
-                                      opts.target_addr)
-    sender.open()
-
-    # Send a single message:
-    msg = Message()
-    msg.body = str(payload)
-
-    class SendCallback(object):
+    class ReceiveCallback(fusion.ReceiverEventHandler):
         def __init__(self):
             self.done = False
-            self.status = None
-        def __call__(self, link, handle, status, error):
+            self.message = None
+            self.handle = None
+        def message_received(self, receiver, message, handle):
             self.done = True
-            self.status = status
+            self.message = message
+            self.handle = handle
 
-    cb = SendCallback()
-    sender.send(msg, cb)
+    target_address = opts.target_addr or uuid.uuid4().hex
+    cb = ReceiveCallback()
+    receiver = connection.create_receiver(target_address,
+                                          opts.source_addr,
+                                          cb)
+    receiver.add_capacity(1)
+    receiver.open()
 
-    # Poll connection until SendCallback is invoked:
+    # Poll connection until something arrives
     while not cb.done:
         process_connection(connection, my_socket)
 
-    print("Send done, status=%s" % SEND_STATUS.get(cb.status,
-                                                   "???"))
-    sender.close()
+    print("Receive done, message=%s" % str(cb.message))
+
+    receiver.message_accepted(cb.handle)
+    receiver.close()
     connection.close()
 
     # Poll connection until close completes:
     while not connection.closed:
         process_connection(connection, my_socket)
 
-    sender.destroy()
+    receiver.destroy()
     connection.destroy()
     container.destroy()
     my_socket.close()
