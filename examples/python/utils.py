@@ -18,10 +18,14 @@
 #
 """Utilities used by the Examples"""
 
-import optparse, sys, time, uuid
-import re, socket, select, errno
+import errno
+import re
+import socket
+import select
+import time
 
 import fusion
+
 
 def get_host_port(server_address):
     """Parse the hostname and port out of the server_address."""
@@ -39,7 +43,8 @@ def connect_socket(host, port, blocking=True):
     """Create a TCP connection to the server."""
     addr = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
     if not addr:
-        raise Exception("Could not translate address '%s:%s'" % (host, str(port)))
+        raise Exception("Could not translate address '%s:%s'"
+                        % (host, str(port)))
     my_socket = socket.socket(addr[0][0], addr[0][1], addr[0][2])
     if not blocking:
         my_socket.setblocking(0)
@@ -50,11 +55,13 @@ def connect_socket(host, port, blocking=True):
             raise
     return my_socket
 
+
 def server_socket(host, port, backlog=10):
     """Create a TCP listening socket for a server."""
     addr = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
     if not addr:
-        raise Exception("Could not translate address '%s:%s'" % (host, str(port)))
+        raise Exception("Could not translate address '%s:%s'"
+                        % (host, str(port)))
     my_socket = socket.socket(addr[0][0], addr[0][1], addr[0][2])
     my_socket.setblocking(0)  # 0=non-blocking
     try:
@@ -64,6 +71,7 @@ def server_socket(host, port, backlog=10):
         if e[0] != errno.EINPROGRESS:
             raise
     return my_socket
+
 
 def process_connection(connection, my_socket):
     """Handle I/O and Timers on a single Connection."""
@@ -108,4 +116,3 @@ SEND_STATUS = {
     fusion.SenderLink.RELEASED: "RELEASED",
     fusion.SenderLink.MODIFIED: "MODIFIED"
 }
-

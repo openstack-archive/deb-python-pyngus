@@ -22,7 +22,7 @@ __all__ = [
 import heapq
 import logging
 
-from connection import Connection
+from fusion.connection import Connection
 
 LOG = logging.getLogger(__name__)
 

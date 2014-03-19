@@ -22,16 +22,21 @@ form: {'method': '<name of method on server>', 'args': {<map of name=value
 arguments for the call} }
 """
 
-import optparse, sys, time, uuid
-import re, socket, select, errno
+import errno
 import logging
+import optparse
+import re
+import socket
+import select
+import sys
+import time
+import uuid
 
 from proton import Message
 import fusion
 
 LOG = logging.getLogger()
 LOG.addHandler(logging.StreamHandler())
-
 
 
 class MyConnection(fusion.ConnectionEventHandler):
@@ -340,7 +345,7 @@ def main(argv=None):
     if not addr:
         raise Exception("Could not translate address '%s'" % opts.server)
     my_socket = socket.socket(addr[0][0], addr[0][1], addr[0][2])
-    my_socket.setblocking(0) # 0=non-blocking
+    my_socket.setblocking(0)  # 0=non-blocking
     try:
         my_socket.connect(addr[0][4])
     except socket.error, e:
@@ -356,18 +361,17 @@ def main(argv=None):
     if opts.ca:
         conn_properties["x-ssl-ca-file"] = opts.ca
 
-    my_connection = MyConnection( "to-server", container, conn_properties)
-
+    my_connection = MyConnection("to-server", container, conn_properties)
 
     # Create the RPC caller
     method = {'method': method_info[0],
               'args': dict([(method_info[i], method_info[i+1])
                             for i in range(1, len(method_info), 2)])}
-    my_caller = my_connection.create_caller( method,
-                                             "my-source-address",
-                                             "my-target-address",
-                                             receiver_properties={},
-                                             sender_properties={})
+    my_caller = my_connection.create_caller(method,
+                                            "my-source-address",
+                                            "my-target-address",
+                                            receiver_properties={},
+                                            sender_properties={})
     try:
         my_connection.connect(my_socket)
         repeat = 0
@@ -407,4 +411,3 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
-

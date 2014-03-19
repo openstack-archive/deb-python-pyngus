@@ -28,6 +28,7 @@ import proton
 
 LOG = logging.getLogger(__name__)
 
+
 class _Link(object):
     """A generic Link base class."""
 
@@ -262,6 +263,7 @@ _Link._STATE_MAP = [  # {event: (next-state, action), ...}
     {},
     #_STATE_REJECTED:
     {}]
+
 
 class SenderEventHandler(object):
     def sender_active(self, sender_link):
@@ -560,6 +562,7 @@ class ReceiverLink(_Link):
                                        req_target,
                                        {"source-address":
                                         pn_link.remote_source.address})
+
 
 class _SessionProxy(object):
     """Corresponds to a Proton Session object."""

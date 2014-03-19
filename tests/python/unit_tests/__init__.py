@@ -16,9 +16,6 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-from fusion.container import Container, ContainerEventHandler
-from fusion.connection import Connection, ConnectionEventHandler
-from fusion.link import ReceiverLink, ReceiverEventHandler
-from fusion.link import SenderLink, SenderEventHandler
-from fusion.sockets import read_socket_input
-from fusion.sockets import write_socket_output
+
+import unit_tests.container
+

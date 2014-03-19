@@ -19,8 +19,9 @@
 #
 """ Minimal message send example code."""
 
-import optparse, sys, time, uuid
-import re, socket, select, errno
+import optparse
+import sys
+import uuid
 
 from proton import Message
 import fusion
@@ -87,6 +88,7 @@ def main(argv=None):
         def __init__(self):
             self.done = False
             self.status = None
+
         def __call__(self, link, handle, status, error):
             self.done = True
             self.status = status
@@ -116,4 +118,3 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
-

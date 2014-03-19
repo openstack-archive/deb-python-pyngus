@@ -23,7 +23,7 @@ __all__ = [
 import logging
 import time
 
-from link import _SessionProxy
+from fusion.link import _SessionProxy
 
 import proton
 
@@ -73,6 +73,7 @@ class ConnectionEventHandler(object):
     def sasl_done(self, connection, result):
         """SASL exchange complete."""
         LOG.debug("sasl_done (ignored)")
+
 
 class Connection(object):
     """A Connection to a peer."""
@@ -295,7 +296,7 @@ class Connection(object):
             next_pn_link = pn_link.next(self._REMOTE_REQ)
             session = pn_link.session.context
             if (pn_link.is_sender and
-                pn_link.name not in self._sender_links):
+                    pn_link.name not in self._sender_links):
                 LOG.debug("Remotely initiated Sender needs init")
                 link = session.request_sender(pn_link)
                 self._sender_links[pn_link.name] = link
@@ -356,7 +357,6 @@ class Connection(object):
             self._next_tick = 0
             if self._handler:
                 self._handler.connection_closed(self)
-
 
         # DEBUG LINK "LEAK"
         # count = 0

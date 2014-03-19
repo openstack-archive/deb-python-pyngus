@@ -19,9 +19,12 @@
 #
 """A simple server that consumes and produces messages."""
 
-import optparse, sys, time, uuid
-import re, socket, select, errno
 import logging
+import optparse
+import select
+import sys
+import time
+import uuid
 
 from proton import Message
 import fusion
@@ -71,8 +74,7 @@ class SocketConnection(fusion.ConnectionEventHandler):
     def process_input(self):
         """Called when socket is read-ready"""
         try:
-            rc = fusion.read_socket_input(self.connection,
-                                          self.socket)
+            fusion.read_socket_input(self.connection, self.socket)
         except Exception as e:
             LOG.error("Exception on socket read: %s", str(e))
             # may be redundant if closed cleanly:
@@ -194,6 +196,7 @@ class MySenderLink(fusion.SenderEventHandler):
             # send another message:
             self.send_message()
 
+
 class MyReceiverLink(fusion.ReceiverEventHandler):
     """Receive messages, and drop them."""
     def __init__(self, socket_conn, handle, rx_addr=None):
@@ -231,6 +234,7 @@ class MyReceiverLink(fusion.ReceiverEventHandler):
         self.receiver_link.message_accepted(handle)
         print("Message received on Receiver link %s, message=%s"
               % (self.receiver_link.name, str(message)))
+
 
 def main(argv=None):
 
@@ -277,13 +281,14 @@ def main(argv=None):
 
         timeout = None
         if timers:
-            deadline = timers[0].next_tick # [0] == next expiring timer
+            deadline = timers[0].next_tick  # [0] == next expiring timer
             now = time.time()
             timeout = 0 if deadline <= now else deadline - now
 
         LOG.debug("select() start (t=%s)", str(timeout))
         readfd.append(my_socket)
-        readable, writable, ignore = select.select(readfd, writefd, [], timeout)
+        readable, writable, ignore = select.select(readfd, writefd,
+                                                   [], timeout)
         LOG.debug("select() returned")
 
         worked = []
@@ -344,4 +349,3 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
-

@@ -19,15 +19,14 @@
 #
 """ Minimal message receive example code."""
 
-import optparse, sys, time, uuid
-import re, socket, select, errno
+import optparse
+import sys
+import uuid
 
-from proton import Message
 import fusion
 from utils import connect_socket
 from utils import get_host_port
 from utils import process_connection
-from utils import SEND_STATUS
 
 
 def main(argv=None):
@@ -76,6 +75,7 @@ def main(argv=None):
             self.done = False
             self.message = None
             self.handle = None
+
         def message_received(self, receiver, message, handle):
             self.done = True
             self.message = message
@@ -112,4 +112,3 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
-

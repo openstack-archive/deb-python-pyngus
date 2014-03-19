@@ -27,7 +27,7 @@ import errno
 import logging
 import socket
 
-from connection import Connection
+from fusion.connection import Connection
 
 LOG = logging.getLogger(__name__)
 

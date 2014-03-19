@@ -27,9 +27,15 @@ The server replies to the client using a map that contains a copy of the method
 map sent in the request.
 """
 
-import optparse, sys, time, uuid
-import re, socket, select, errno
+import errno
 import logging
+import optparse
+import re
+import socket
+import select
+import sys
+import time
+import uuid
 #import gc
 
 from guppy import hpy
@@ -50,7 +56,7 @@ receiver_links = {}
 reply_senders = {}
 
 # database of all active SocketConnections
-socket_connections = {} # indexed by name
+socket_connections = {}  # indexed by name
 
 
 class SocketConnection(fusion.ConnectionEventHandler):
@@ -84,8 +90,7 @@ class SocketConnection(fusion.ConnectionEventHandler):
     def process_input(self):
         """Called when socket is read-ready"""
         try:
-            rc = fusion.read_socket_input(self.connection,
-                                          self.socket)
+            fusion.read_socket_input(self.connection, self.socket)
         except Exception as e:
             LOG.error("Exception on socket read: %s", str(e))
             # may be redundant if closed cleanly:
@@ -268,7 +273,7 @@ class MyReceiverLink(fusion.ReceiverEventHandler):
             correlation_id = message.correlation_id
             method_map = message.body
             if (not isinstance(method_map, dict) or
-                'method' not in method_map):
+                    'method' not in method_map):
                 LOG.error("no method given, map=%s", str(method_map))
                 self._link.message_rejected(handle, "Bad format")
             else:
@@ -291,7 +296,7 @@ class MyReceiverLink(fusion.ReceiverEventHandler):
 
         if self._link.capacity == 0:
             LOG.debug("increasing credit...")
-            self._link.add_capacity( 5 )
+            self._link.add_capacity(5)
 
 
 def main(argv=None):
@@ -333,7 +338,7 @@ def main(argv=None):
     if not addr:
         raise Exception("Could not translate address '%s'" % opts.address)
     my_socket = socket.socket(addr[0][0], addr[0][1], addr[0][2])
-    my_socket.setblocking(0) # 0=non-blocking
+    my_socket.setblocking(0)  # 0=non-blocking
     try:
         my_socket.bind((host, port))
         my_socket.listen(10)
@@ -368,12 +373,15 @@ def main(argv=None):
 
         timeout = None
         if timers:
-            deadline = timers[0].next_tick # 0 == next expiring timer
+            deadline = timers[0].next_tick  # 0 == next expiring timer
             now = time.time()
             timeout = 0 if deadline <= now else deadline - now
 
         LOG.debug("select() start (t=%s)", str(timeout))
-        readable, writable, ignore = select.select(readfd, writefd, [], timeout)
+        readable, writable, ignore = select.select(readfd,
+                                                   writefd,
+                                                   [],
+                                                   timeout)
         LOG.debug("select() returned")
 
         worked = []
@@ -434,4 +442,3 @@ def main(argv=None):
 
 if __name__ == "__main__":
     sys.exit(main())
-

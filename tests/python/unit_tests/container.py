@@ -16,9 +16,20 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-from fusion.container import Container, ContainerEventHandler
-from fusion.connection import Connection, ConnectionEventHandler
-from fusion.link import ReceiverLink, ReceiverEventHandler
-from fusion.link import SenderLink, SenderEventHandler
-from fusion.sockets import read_socket_input
-from fusion.sockets import write_socket_output
+
+import fusion
+import common
+
+
+class APITest(common.Test):
+
+    def setup(self):
+        pass
+
+    def teardown(self):
+        pass
+
+    def test_create_destroy(self):
+        container = fusion.Container("My-Container")
+        assert container.name == "My-Container"
+        container.destroy()
