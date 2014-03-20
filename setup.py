@@ -24,5 +24,6 @@ setup(name="dingus",
       author="kgiusti",
       author_email="kgiusti@apache.org",
       packages=["dingus"],
-      package_dir={"dingus": "python"},
+      package_dir={"dingus": "python/dingus"},
+      description="Callback API implemented over Proton",
       license="Apache Software License")
