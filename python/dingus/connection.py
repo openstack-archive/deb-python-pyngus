@@ -41,7 +41,7 @@ class ConnectionEventHandler(object):
         """Connection's transport has failed in some way."""
         LOG.warn("connection_failed, error=%s (ignored)", str(error))
 
-    def connection_remote_closed(self, connection, error=None):
+    def connection_remote_closed(self, connection, pn_condition):
         """Peer has closed its end of the connection."""
         LOG.debug("connection_remote_closed (ignored)")
 
@@ -70,7 +70,7 @@ class ConnectionEventHandler(object):
         """SASL exchange occurred."""
         LOG.debug("sasl_step (ignored)")
 
-    def sasl_done(self, connection, result):
+    def sasl_done(self, connection, pn_sasl, result):
         """SASL exchange complete."""
         LOG.debug("sasl_done (ignored)")
 
@@ -156,6 +156,7 @@ class Connection(object):
         self._next_tick = 0
         self._user_context = None
         self._active = False
+        self._in_process = False
 
         self._pn_ssl = self._configure_ssl(properties)
 
@@ -188,6 +189,13 @@ class Connection(object):
         """
         return self._pn_connection.remote_container
 
+    @property
+    def remote_hostname(self):
+        """Return the hostname advertised by the remote, if present."""
+        if self._pn_connection:
+            return self._pn_connection.remote_hostname
+        return None
+
     # TODO(kgiusti) - think about server side use of sasl!
     @property
     def pn_sasl(self):
@@ -217,12 +225,21 @@ class Connection(object):
     def open(self):
         self._pn_connection.open()
 
-    def close(self, error=None):
+    def close(self, pn_condition=None):
         for link in self._sender_links.itervalues():
-            link.close(error)
+            link.close(pn_condition)
         for link in self._receiver_links.itervalues():
-            link.close(error)
+            link.close(pn_condition)
+        if pn_condition:
+            self._pn_connection.condition = pn_condition
         self._pn_connection.close()
+
+    @property
+    def active(self):
+        """Return True if both ends of the Connection are open."""
+        state = self._pn_connection.state
+        return (state == (proton.Endpoint.LOCAL_ACTIVE
+                          | proton.Endpoint.REMOTE_ACTIVE))
 
     @property
     def closed(self):
@@ -252,121 +269,132 @@ class Connection(object):
 
     def process(self, now):
         """Perform connection state processing."""
-        if self._error:
-            if self._handler:
-                self._handler.connection_failed(self, self._error)
-            # nag application until connection is destroyed
-            self._next_tick = now
-            return now
+        if self._in_process:
+            raise RuntimeError("Connection.process() is not re-entrant!")
+        self._in_process = True
+        try:
 
-        self._next_tick = self._pn_transport.tick(now)
-
-        # wait until SASL has authenticated
-        # TODO(kgiusti) Server-side SASL
-        if self._pn_sasl:
-            if self._pn_sasl.state not in (proton.SASL.STATE_PASS,
-                                           proton.SASL.STATE_FAIL):
-                LOG.debug("SASL in progress. State=%s",
-                          str(self._pn_sasl.state))
+            if self._error:
                 if self._handler:
-                    self._handler.sasl_step(self, self._pn_sasl)
-                return
+                    self._handler.connection_failed(self, self._error)
+                # nag application until connection is destroyed
+                self._next_tick = now
+                return now
 
-            if self._handler:
-                self._handler.sasl_done(self, self._pn_sasl.outcome)
-            self._pn_sasl = None
+            self._next_tick = self._pn_transport.tick(now)
 
-        # do endpoint up handling:
+            # wait until SASL has authenticated
+            # TODO(kgiusti) Server-side SASL
+            if self._pn_sasl:
+                if self._pn_sasl.state not in (proton.SASL.STATE_PASS,
+                                               proton.SASL.STATE_FAIL):
+                    LOG.debug("SASL in progress. State=%s",
+                              str(self._pn_sasl.state))
+                    if self._handler:
+                        self._handler.sasl_step(self, self._pn_sasl)
+                    return
 
-        if self._pn_connection.state == self._ACTIVE:
-            if not self._active:
-                self._active = True
                 if self._handler:
-                    self._handler.connection_active(self)
+                    self._handler.sasl_done(self, self._pn_sasl,
+                                            self._pn_sasl.outcome)
+                self._pn_sasl = None
 
-        pn_session = self._pn_connection.session_head(self._LOCAL_UNINIT)
-        while pn_session:
-            LOG.debug("Opening remotely initiated session")
-            session = _SessionProxy(self, pn_session)
-            session.open()
-            pn_session = pn_session.next(self._LOCAL_UNINIT)
+            # do endpoint up handling:
 
-        pn_link = self._pn_connection.link_head(self._REMOTE_REQ)
-        while pn_link:
-            next_pn_link = pn_link.next(self._REMOTE_REQ)
-            session = pn_link.session.context
-            if (pn_link.is_sender and
-                    pn_link.name not in self._sender_links):
-                LOG.debug("Remotely initiated Sender needs init")
-                link = session.request_sender(pn_link)
-                self._sender_links[pn_link.name] = link
-                link._process_endpoints()
-            elif (pn_link.is_receiver and
-                  pn_link.name not in self._receiver_links):
-                LOG.debug("Remotely initiated Receiver needs init")
-                link = session.request_receiver(pn_link)
-                self._receiver_links[pn_link.name] = link
-                link._process_endpoints()
-            else:
-                LOG.debug("Ignoring request link - name in use %s",
-                          pn_link.name)
-            pn_link = next_pn_link
+            if self._pn_connection.state == self._ACTIVE:
+                if not self._active:
+                    self._active = True
+                    if self._handler:
+                        self._handler.connection_active(self)
 
-        # TODO(kgiusti) won't scale - use new Engine event API
-        pn_link = self._pn_connection.link_head(self._ACTIVE)
-        while pn_link:
-            next_pn_link = pn_link.next(self._ACTIVE)
-            pn_link.context._process_endpoints()
-            pn_link = next_pn_link
+            pn_session = self._pn_connection.session_head(self._LOCAL_UNINIT)
+            while pn_session:
+                LOG.debug("Opening remotely initiated session")
+                session = _SessionProxy(self, pn_session)
+                session.open()
+                pn_session = pn_session.next(self._LOCAL_UNINIT)
 
-        # process the delivery work queue
-        pn_delivery = self._pn_connection.work_head
-        while pn_delivery:
-            next_delivery = pn_delivery.work_next
-            pn_delivery.link.context._process_delivery(pn_delivery)
-            pn_delivery = next_delivery
+            pn_link = self._pn_connection.link_head(self._REMOTE_REQ)
+            while pn_link:
+                next_pn_link = pn_link.next(self._REMOTE_REQ)
+                session = pn_link.session.context
+                if (pn_link.is_sender and
+                        pn_link.name not in self._sender_links):
+                    LOG.debug("Remotely initiated Sender needs init")
+                    link = session.request_sender(pn_link)
+                    self._sender_links[pn_link.name] = link
+                    link._process_endpoints()
+                elif (pn_link.is_receiver and
+                      pn_link.name not in self._receiver_links):
+                    LOG.debug("Remotely initiated Receiver needs init")
+                    link = session.request_receiver(pn_link)
+                    self._receiver_links[pn_link.name] = link
+                    link._process_endpoints()
+                else:
+                    LOG.debug("Ignoring request link - name in use %s",
+                              pn_link.name)
+                pn_link = next_pn_link
 
-        # do endpoint down handling:
+            # TODO(kgiusti) won't scale - use new Engine event API
+            pn_link = self._pn_connection.link_head(self._ACTIVE)
+            while pn_link:
+                next_pn_link = pn_link.next(self._ACTIVE)
+                pn_link.context._process_endpoints()
+                pn_link.context._process_credit()
+                pn_link = next_pn_link
 
-        pn_link = self._pn_connection.link_head(self._REMOTE_CLOSE)
-        while pn_link:
-            next_pn_link = pn_link.next(self._REMOTE_CLOSE)
-            pn_link.context._process_endpoints()
-            pn_link = next_pn_link
+            # process the delivery work queue
+            pn_delivery = self._pn_connection.work_head
+            while pn_delivery:
+                next_delivery = pn_delivery.work_next
+                pn_delivery.link.context._process_delivery(pn_delivery)
+                pn_delivery = next_delivery
 
-        pn_link = self._pn_connection.link_head(self._CLOSED)
-        while pn_link:
-            next_pn_link = pn_link.next(self._CLOSED)
-            pn_link.context._process_endpoints()
-            pn_link = next_pn_link
+            # do endpoint down handling:
 
-        pn_session = self._pn_connection.session_head(self._REMOTE_CLOSE)
-        while pn_session:
-            LOG.debug("Session closed remotely")
-            next_session = pn_session.next(self._REMOTE_CLOSE)
-            session = pn_session.context
-            session.remote_closed()
-            pn_session = next_session
+            pn_link = self._pn_connection.link_head(self._REMOTE_CLOSE)
+            while pn_link:
+                next_pn_link = pn_link.next(self._REMOTE_CLOSE)
+                pn_link.context._process_endpoints()
+                pn_link = next_pn_link
 
-        if self._pn_connection.state == self._REMOTE_CLOSE:
-            LOG.debug("Connection remotely closed")
-            if self._handler:
-                self._handler.connection_remote_closed(self, None)
-        elif self._pn_connection.state == self._CLOSED:
-            LOG.debug("Connection close complete")
-            self._next_tick = 0
-            if self._handler:
-                self._handler.connection_closed(self)
+            pn_link = self._pn_connection.link_head(self._CLOSED)
+            while pn_link:
+                next_pn_link = pn_link.next(self._CLOSED)
+                pn_link.context._process_endpoints()
+                pn_link = next_pn_link
 
-        # DEBUG LINK "LEAK"
-        # count = 0
-        # link = self._pn_connection.link_head(0)
-        # while link:
-        #     count += 1
-        #     link = link.next(0)
-        # print "Link Count %d" % count
+            pn_session = self._pn_connection.session_head(self._REMOTE_CLOSE)
+            while pn_session:
+                LOG.debug("Session closed remotely")
+                next_session = pn_session.next(self._REMOTE_CLOSE)
+                session = pn_session.context
+                session.remote_closed()
+                pn_session = next_session
 
-        return self._next_tick
+            if self._pn_connection.state == self._REMOTE_CLOSE:
+                LOG.debug("Connection remotely closed")
+                if self._handler:
+                    cond = self._pn_connection.remote_condition
+                    self._handler.connection_remote_closed(self, cond)
+            elif self._pn_connection.state == self._CLOSED:
+                LOG.debug("Connection close complete")
+                self._next_tick = 0
+                if self._handler:
+                    self._handler.connection_closed(self)
+
+            # DEBUG LINK "LEAK"
+            # count = 0
+            # link = self._pn_connection.link_head(0)
+            # while link:
+            #     count += 1
+            #     link = link.next(0)
+            # print "Link Count %d" % count
+
+            return self._next_tick
+
+        finally:
+            self._in_process = False
 
     @property
     def next_tick(self):
@@ -379,7 +407,7 @@ class Connection(object):
         if self._read_done:
             return self.EOS
         try:
-            #TODO(grs): can this actually throw?
+            # TODO(grs): can this actually throw?
             capacity = self._pn_transport.capacity()
         except Exception as e:
             return self._connection_failed(str(e))
@@ -389,7 +417,7 @@ class Connection(object):
         return self.EOS
 
     def process_input(self, in_data):
-        c = self.needs_input
+        c = min(self.needs_input, len(in_data))
         if c <= 0:
             return c
         try:
@@ -405,8 +433,8 @@ class Connection(object):
         if not self._read_done:
             try:
                 self._pn_transport.close_tail()
-            except Exception:
-                pass  # ignore - we're closing anyway
+            except Exception as e:
+                self._connection_failed(str(e))
             self._read_done = True
 
     @property
@@ -445,8 +473,8 @@ class Connection(object):
         if not self._write_done:
             try:
                 self._pn_transport.close_head()
-            except Exception:
-                pass   # ignore - closing anyways
+            except Exception as e:
+                self._connection_failed(str(e))
             self._write_done = True
 
     def create_sender(self, source_address, target_address=None,
@@ -513,11 +541,11 @@ class Connection(object):
                        event_handler, properties)
         return link
 
-    def reject_receiver(self, link_handle, reason):
+    def reject_receiver(self, link_handle, pn_condition=None):
         link = self._receiver_links.get(link_handle)
         if not link:
             raise Exception("Invalid link_handle: %s" % link_handle)
-        link.reject(reason)
+        link.reject(pn_condition)
         link.destroy()
 
     def _remove_sender(self, name):

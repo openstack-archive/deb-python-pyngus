@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -155,7 +156,7 @@ class MyConnection(dingus.ConnectionEventHandler):
     def sasl_step(self, connection, pn_sasl):
         LOG.debug("sasl_step")
 
-    def sasl_done(self, connection, result):
+    def sasl_done(self, connection, pn_sasl, result):
         LOG.debug("SASL done, result=%s", str(result))
 
 
@@ -166,7 +167,7 @@ class MyCaller(dingus.SenderEventHandler,
     def __init__(self, method_map, my_connection,
                  my_source, my_target,
                  receiver_properties, sender_properties):
-        #self._name = uuid.uuid4().hex
+        # self._name = uuid.uuid4().hex
         self._my_connection = my_connection
         self._source_addr = my_source
         self._target_addr = my_target
@@ -204,14 +205,14 @@ class MyCaller(dingus.SenderEventHandler,
             self._source_addr,
             target_address=None,
             event_handler=self,
-            #name=self._source_addr,
+            # name=self._source_addr,
             name=self._name,
             properties=self._sender_properties)
         self._receiver = conn.create_receiver(
             self._target_addr,
             source_address=None,
             event_handler=self,
-            #name=self._target_addr,
+            # name=self._target_addr,
             name=self._name,
             properties=self._receiver_properties)
         self._sender.open()

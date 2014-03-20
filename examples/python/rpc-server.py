@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 #
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
@@ -36,10 +37,10 @@ import select
 import sys
 import time
 import uuid
-#import gc
+# import gc
 
-from guppy import hpy
-hp = hpy()
+# from guppy import hpy
+# hp = hpy()
 
 from proton import Message
 import dingus
@@ -182,7 +183,7 @@ class SocketConnection(dingus.ConnectionEventHandler):
         LOG.debug("SASL step callback")
         pn_sasl.done(pn_sasl.OK)
 
-    def sasl_done(self, connection, result):
+    def sasl_done(self, connection, pn_sasl, result):
         LOG.debug("SASL done callback, result=%s", str(result))
 
 
@@ -288,8 +289,8 @@ class MyReceiverLink(dingus.ReceiverEventHandler):
                 print("  replying to=%s" % str(reply_to))
                 link = my_sender.sender_link
                 # @todo send timeouts
-                #link.send( response, my_sender,
-                #           message, time.time() + 5.0)
+                # link.send( response, my_sender,
+                #            message, time.time() + 5.0)
                 link.send(response, my_sender, message)
 
                 self._link.message_accepted(handle)

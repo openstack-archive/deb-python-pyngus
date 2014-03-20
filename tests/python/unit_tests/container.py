@@ -16,20 +16,79 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+import common
+import gc
 
 import dingus
-import common
 
 
 class APITest(common.Test):
 
-    def setup(self):
-        pass
-
-    def teardown(self):
-        pass
-
     def test_create_destroy(self):
         container = dingus.Container("My-Container")
         assert container.name == "My-Container"
+        container.destroy()
+
+    def test_create_connection(self):
+        container = dingus.Container("A123")
+        container.create_connection("c1")
+        container.create_connection("c2")
+        c1 = container.get_connection("c1")
+        assert c1 and c1.name == "c1", "Connection not found!"
+        c3 = container.get_connection("c3")
+        assert not c3, "Bad connection returned!"
+        container.destroy()
+        del c1
+
+    def test_cleanup(self):
+        gc.enable()
+        container = dingus.Container("abc")
+        c1 = container.create_connection("c1")
+        c2 = container.create_connection("c2")
+        assert c2
+        del c2
+        gc.collect()
+        c2 = container.get_connection("c2")
+        assert c2
+        c1 = container.get_connection("c1")
+        assert c1
+        c1.create_receiver("r1")
+        c1.create_sender("s1")
+        del c1
+        del c2
+        container.destroy()
+        del container
+        gc.collect()
+        assert not gc.garbage, "Object leak!"
+
+    def test_need_processing(self):
+        container = dingus.Container("abc")
+        c1 = container.create_connection("c1")
+        c2 = container.create_connection("c2")
+        props = {"idle-time-out": 10}
+        c3 = container.create_connection("c3", properties=props)
+        c4 = container.create_connection("c4")
+        c1.open()
+        c2.open()
+        c3.open()
+        c4.open()
+        # every connection should need both input and output,
+        # but no timers yet (connection's not up)
+        r, w, t = container.need_processing()
+        assert c1 in r and c1 in w
+        assert c2 in r and c2 in w
+        assert c3 in r and c3 in w
+        assert c4 in r and c4 in w
+        assert not t
+        common.process_connections(c1, c2)
+        common.process_connections(c3, c4)
+        # After connections come up, no connection should need to do I/O, and
+        # only c4 and c4 should be in the timer list:
+        r, w, t = container.need_processing()
+        assert c1 in r
+        assert c2 in r
+        assert c3 in r
+        assert c4 in r
+        assert not w
+        assert len(t) == 2 and c3 in t and c4 in t
         container.destroy()

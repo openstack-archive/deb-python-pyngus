@@ -1,0 +1,2 @@
+Incomplete: message send timeout.
+Bugfix: aborting pending message must not call back until Connection.process() is called.

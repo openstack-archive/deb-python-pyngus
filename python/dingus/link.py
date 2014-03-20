@@ -81,6 +81,10 @@ class _Link(object):
     def name(self):
         return self._name
 
+    @property
+    def connection(self):
+        return self._connection
+
     def open(self):
         LOG.debug("Opening the link.")
         self._pn_link.open()
@@ -115,15 +119,29 @@ class _Link(object):
         else:
             return self._pn_link.remote_target.address
 
-    def close(self, error=None):
+    def close(self, pn_condition=None):
         LOG.debug("Closing the link.")
+        if pn_condition:
+            self._pn_link.condition = pn_condition
         self._pn_link.close()
+
+    @property
+    def active(self):
+        state = self._pn_link.state
+        return state == (proton.Endpoint.LOCAL_ACTIVE
+                         | proton.Endpoint.REMOTE_ACTIVE)
 
     @property
     def closed(self):
         state = self._pn_link.state
         return state == (proton.Endpoint.LOCAL_CLOSED
                          | proton.Endpoint.REMOTE_CLOSED)
+
+    def reject(self, pn_condition):
+        self._pn_link.open()
+        if pn_condition:
+            self._pn_link.condition = pn_condition
+        self._pn_link.close()
 
     def destroy(self):
         LOG.debug("link destroyed %s", str(self._pn_link))
@@ -136,7 +154,7 @@ class _Link(object):
             self._pn_link = None
             session.link_destroyed(self)  # destroy session _after_ link
 
-    ## Link State Machine
+    # Link State Machine
 
     # Link States:  (note: keep in sync with _STATE_MAP below!)
     _STATE_UNINIT = 0  # initial state
@@ -203,6 +221,7 @@ class _Link(object):
                     if entry[1]:
                         entry[1](self)
 
+        fsm = _Link._STATE_MAP[self._state]
         if ((new_state & REMOTE_MASK) != (old_state & REMOTE_MASK)):
             event = None
             if new_state & proton.Endpoint.REMOTE_ACTIVE:
@@ -249,19 +268,19 @@ _Link._STATE_MAP = [  # {event: (next-state, action), ...}
     {_Link._LOCAL_CLOSED:  (_Link._STATE_REJECTED,   None),
      _Link._LOCAL_ACTIVE:  (_Link._STATE_ACTIVE,     _Link._fsm_active),
      _Link._REMOTE_CLOSED: (_Link._STATE_CANCELLED,  None)},
-    #_STATE_CANCELLED:
+    # _STATE_CANCELLED:
     {_Link._LOCAL_CLOSED:  (_Link._STATE_REJECTED,   None),
      _Link._LOCAL_ACTIVE:  (_Link._STATE_NEED_CLOSE, _Link._fsm_need_close)},
-    #_STATE_ACTIVE:
+    # _STATE_ACTIVE:
     {_Link._LOCAL_CLOSED:  (_Link._STATE_CLOSING,    None),
      _Link._REMOTE_CLOSED: (_Link._STATE_NEED_CLOSE, _Link._fsm_need_close)},
-    #_STATE_NEED_CLOSE:
+    # _STATE_NEED_CLOSE:
     {_Link._LOCAL_CLOSED:  (_Link._STATE_CLOSED,     _Link._fsm_closed)},
-    #_STATE_CLOSING:
+    # _STATE_CLOSING:
     {_Link._REMOTE_CLOSED: (_Link._STATE_CLOSED,     _Link._fsm_closed)},
-    #_STATE_CLOSED:
+    # _STATE_CLOSED:
     {},
-    #_STATE_REJECTED:
+    # _STATE_REJECTED:
     {}]
 
 
@@ -269,7 +288,7 @@ class SenderEventHandler(object):
     def sender_active(self, sender_link):
         LOG.debug("sender_active (ignored)")
 
-    def sender_remote_closed(self, sender_link, error=None):
+    def sender_remote_closed(self, sender_link, pn_condition):
         LOG.debug("sender_remote_closed (ignored)")
 
     def sender_closed(self, sender_link):
@@ -321,32 +340,34 @@ class SenderLink(_Link):
 
         return 0
 
+    @property
     def pending(self):
         return len(self._pending_sends) + len(self._pending_acks)
 
+    @property
     def credit(self):
         return self._pn_link.credit
 
-    def close(self, error=None):
+    def close(self, pn_condition=None):
         while self._pending_sends:
             i = self._pending_sends.popleft()
             cb = i[1]
             if cb:
                 handle = i[2]
-                cb(self, handle, self.ABORTED, error)
+                # TODO(kgiusti) fix - must be async!
+                cb(self, handle, self.ABORTED, {"condition": pn_condition})
         for i in self._pending_acks.itervalues():
             cb = i[1]
             handle = i[2]
-            cb(self, handle, self.ABORTED, error)
+            # TODO(kgiusti) fix - must be async!
+            cb(self, handle, self.ABORTED, {"condition": pn_condition})
         self._pending_acks.clear()
-        super(SenderLink, self).close()
+        super(SenderLink, self).close(pn_condition)
 
-    def reject(self, reason):
+    def reject(self, pn_condition=None):
         """See Link Reject, AMQP1.0 spec."""
-        # TODO(kgiusti) support reason for close
         self._pn_link.source.type = proton.Terminus.UNSPECIFIED
-        self._pn_link.open()
-        self._pn_link.close()
+        super(SenderLink, self).reject(pn_condition)
 
     def destroy(self):
         self._connection._remove_sender(self._name)
@@ -368,10 +389,20 @@ class SenderLink(_Link):
                 send_req = self._pending_acks.pop(pn_delivery.tag)
                 state = _disposition_state_map.get(pn_delivery.remote_state,
                                                    self.UNKNOWN)
+                pn_disposition = pn_delivery.remote
+                info = {}
+                if state == SenderLink.REJECTED:
+                    if pn_disposition.condition:
+                        info["condition"] = pn_disposition.condition
+                elif state == SenderLink.MODIFIED:
+                    info["delivery-failed"] = pn_disposition.failed
+                    info["undeliverable-here"] = pn_disposition.undeliverable
+                    annotations = pn_disposition.annotations
+                    if annotations:
+                        info["message-annotations"] = annotations
                 cb = send_req[1]
                 handle = send_req[2]
-
-                cb(self, handle, state, None)
+                cb(self, handle, state, info)
                 pn_delivery.settle()
         else:
             # not for a sent msg, use it to send the next
@@ -384,8 +415,8 @@ class SenderLink(_Link):
 
     def _process_credit(self):
         # Alert if credit has become available
-        if self._handler:
-            new_credit = self._pn_link.credit()
+        if self._handler and self._state == _Link._STATE_ACTIVE:
+            new_credit = self._pn_link.credit
             if self._last_credit <= 0 and new_credit > 0:
                 self._handler.credit_granted(self)
             self._last_credit = new_credit
@@ -417,7 +448,8 @@ class SenderLink(_Link):
         # TODO(kgiusti) error reporting
         LOG.debug("Link remote closed")
         if self._handler:
-            self._handler.sender_remote_closed(self, None)
+            cond = self._pn_link.remote_condition
+            self._handler.sender_remote_closed(self, cond)
 
     def _do_closed(self):
         LOG.debug("Link close completed")
@@ -426,21 +458,28 @@ class SenderLink(_Link):
 
     def _do_requested(self):
         LOG.debug("Remote has initiated a link")
-        pn_link = self._pn_link
-        # has the remote requested a source address?
-        req_source = ""
-        if pn_link.remote_source.dynamic:
-            req_source = None
-        elif pn_link.remote_source.address:
-            req_source = pn_link.remote_source.address
         handler = self._connection._handler
         if handler:
+            pn_link = self._pn_link
+            # has the remote requested a source address?
+            req_source = ""
+            if pn_link.remote_source.dynamic:
+                req_source = None
+            elif pn_link.remote_source.address:
+                req_source = pn_link.remote_source.address
+
+            props = {"target-address": pn_link.remote_target.address}
+            dist_mode = pn_link.remote_source.distribution_mode
+            if (dist_mode == proton.Terminus.DIST_MODE_COPY):
+                props["distribution-mode"] = "copy"
+            elif (dist_mode == proton.Terminus.DIST_MODE_MOVE):
+                props["distribution-mode"] = "move"
+
             handler.sender_requested(self._connection,
                                      pn_link.name,  # handle
                                      pn_link.name,
                                      req_source,
-                                     {"target-address":
-                                      pn_link.remote_target.address})
+                                     props)
 
 
 class ReceiverEventHandler(object):
@@ -448,7 +487,7 @@ class ReceiverEventHandler(object):
     def receiver_active(self, receiver_link):
         LOG.debug("receiver_active (ignored)")
 
-    def receiver_remote_closed(self, receiver_link, error=None):
+    def receiver_remote_closed(self, receiver_link, pn_condition):
         LOG.debug("receiver_remote_closed (ignored)")
 
     def receiver_closed(self, receiver_link):
@@ -466,31 +505,51 @@ class ReceiverLink(_Link):
 
         # TODO(kgiusti) - think about receiver-settle-mode configuration
 
+    @property
     def capacity(self):
-        return self._pn_link.credit()
+        return self._pn_link.credit
 
     def add_capacity(self, amount):
         self._pn_link.flow(amount)
 
+    def _settle_delivery(self, handle, state):
+        pn_delivery = self._unsettled_deliveries.pop(handle, None)
+        if pn_delivery is None:
+            raise Exception("Invalid message handle: %s" % str(handle))
+        pn_delivery.update(state)
+        pn_delivery.settle()
+
     def message_accepted(self, handle):
         self._settle_delivery(handle, proton.Delivery.ACCEPTED)
-
-    def message_rejected(self, handle, reason=None):
-        # TODO(kgiusti): how to deal with 'reason'
-        self._settle_delivery(handle, proton.Delivery.REJECTED)
 
     def message_released(self, handle):
         self._settle_delivery(handle, proton.Delivery.RELEASED)
 
-    def message_modified(self, handle):
-        self._settle_delivery(handle, proton.Delivery.MODIFIED)
+    def message_rejected(self, handle, pn_condition=None):
+        pn_delivery = self._unsettled_deliveries.pop(handle, None)
+        if pn_delivery is None:
+            raise Exception("Invalid message handle: %s" % str(handle))
+        if pn_condition:
+            pn_delivery.local.condition = pn_condition
+        pn_delivery.update(proton.Delivery.REJECTED)
+        pn_delivery.settle()
 
-    def reject(self, reason):
+    def message_modified(self, handle, delivery_failed, undeliverable,
+                         annotations):
+        pn_delivery = self._unsettled_deliveries.pop(handle, None)
+        if pn_delivery is None:
+            raise Exception("Invalid message handle: %s" % str(handle))
+        pn_delivery.local.failed = delivery_failed
+        pn_delivery.local.undeliverable = undeliverable
+        if annotations:
+            pn_delivery.local.annotations = annotations
+        pn_delivery.update(proton.Delivery.MODIFIED)
+        pn_delivery.settle()
+
+    def reject(self, pn_condition=None):
         """See Link Reject, AMQP1.0 spec."""
-        # TODO(kgiusti) support reason for close
         self._pn_link.target.type = proton.Terminus.UNSPECIFIED
-        self._pn_link.open()
-        self._pn_link.close()
+        super(ReceiverLink, self).reject(pn_condition)
 
     def destroy(self):
         self._connection._remove_receiver(self._name)
@@ -516,14 +575,6 @@ class ReceiverLink(_Link):
                 # TODO(kgiusti): is it ok to assume Delivery.REJECTED?
                 pn_delivery.settle()
 
-    def _settle_delivery(self, handle, result):
-        # settle delivery associated with a handle
-        if handle not in self._unsettled_deliveries:
-            raise Exception("Invalid message handle: %s" % str(handle))
-        pn_delivery = self._unsettled_deliveries.pop(handle)
-        pn_delivery.update(result)
-        pn_delivery.settle()
-
     def _process_credit(self):
         # Only used by SenderLink
         pass
@@ -538,7 +589,8 @@ class ReceiverLink(_Link):
     def _do_need_close(self):
         LOG.debug("Link remote closed")
         if self._handler:
-            self._handler.receiver_remote_closed(self, None)
+            cond = self._pn_link.remote_condition
+            self._handler.receiver_remote_closed(self, cond)
 
     def _do_closed(self):
         LOG.debug("Link close completed")
@@ -547,21 +599,28 @@ class ReceiverLink(_Link):
 
     def _do_requested(self):
         LOG.debug("Remote has initiated a ReceiverLink")
-        pn_link = self._pn_link
-        # has the remote requested a target address?
-        req_target = ""
-        if pn_link.remote_target.dynamic:
-            req_target = None
-        elif pn_link.remote_target.address:
-            req_target = pn_link.remote_target.address
         handler = self._connection._handler
         if handler:
+            pn_link = self._pn_link
+            # has the remote requested a target address?
+            req_target = ""
+            if pn_link.remote_target.dynamic:
+                req_target = None
+            elif pn_link.remote_target.address:
+                req_target = pn_link.remote_target.address
+
+            props = {"source-address": pn_link.remote_source.address}
+            dist_mode = pn_link.remote_source.distribution_mode
+            if (dist_mode == proton.Terminus.DIST_MODE_COPY):
+                props["distribution-mode"] = "copy"
+            elif (dist_mode == proton.Terminus.DIST_MODE_MOVE):
+                props["distribution-mode"] = "move"
+
             handler.receiver_requested(self._connection,
                                        pn_link.name,  # handle
                                        pn_link.name,
                                        req_target,
-                                       {"source-address":
-                                        pn_link.remote_source.address})
+                                       props)
 
 
 class _SessionProxy(object):

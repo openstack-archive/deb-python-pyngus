@@ -139,7 +139,7 @@ class SocketConnection(dingus.ConnectionEventHandler):
         # Unconditionally accept the client:
         pn_sasl.done(pn_sasl.OK)
 
-    def sasl_done(self, connection, result):
+    def sasl_done(self, connection, pn_sasl, result):
         LOG.debug("SASL done callback, result=%s", str(result))
 
 
@@ -192,7 +192,7 @@ class MySenderLink(dingus.SenderEventHandler):
     def __call__(self, sender, handle, status, error=None):
         print("Message sent on Sender link %s, status=%s" %
               (self.sender_link.name, status))
-        if self.sender_link.credit() > 0:
+        if self.sender_link.credit > 0:
             # send another message:
             self.send_message()
 
@@ -297,7 +297,7 @@ def main(argv=None):
                 # new inbound connection request received,
                 # create a new SocketConnection for it:
                 client_socket, client_address = my_socket.accept()
-                #name = uuid.uuid4().hex
+                # name = uuid.uuid4().hex
                 name = str(client_address)
                 conn_properties = {}
                 if opts.idle_timeout:
