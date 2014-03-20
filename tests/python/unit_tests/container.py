@@ -17,7 +17,7 @@
 # under the License.
 #
 
-import fusion
+import dingus
 import common
 
 
@@ -30,6 +30,6 @@ class APITest(common.Test):
         pass
 
     def test_create_destroy(self):
-        container = fusion.Container("My-Container")
+        container = dingus.Container("My-Container")
         assert container.name == "My-Container"
         container.destroy()

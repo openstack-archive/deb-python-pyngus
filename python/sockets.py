@@ -27,7 +27,7 @@ import errno
 import logging
 import socket
 
-from fusion.connection import Connection
+from dingus.connection import Connection
 
 LOG = logging.getLogger(__name__)
 

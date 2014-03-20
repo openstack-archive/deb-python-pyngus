@@ -24,7 +24,7 @@ import socket
 import select
 import time
 
-import fusion
+import dingus
 
 
 def get_host_port(server_address):
@@ -100,19 +100,19 @@ def process_connection(connection, my_socket):
                                                [],
                                                timeout)
     if readable:
-        fusion.read_socket_input(connection, my_socket)
+        dingus.read_socket_input(connection, my_socket)
     connection.process(time.time())
     if writable:
-        fusion.write_socket_output(connection, my_socket)
+        dingus.write_socket_output(connection, my_socket)
     return True
 
 # Map the send callback status to a string
 SEND_STATUS = {
-    fusion.SenderLink.ABORTED: "Aborted",
-    fusion.SenderLink.TIMED_OUT: "Timed-out",
-    fusion.SenderLink.UNKNOWN: "Unknown",
-    fusion.SenderLink.ACCEPTED: "Accepted",
-    fusion.SenderLink.REJECTED: "REJECTED",
-    fusion.SenderLink.RELEASED: "RELEASED",
-    fusion.SenderLink.MODIFIED: "MODIFIED"
+    dingus.SenderLink.ABORTED: "Aborted",
+    dingus.SenderLink.TIMED_OUT: "Timed-out",
+    dingus.SenderLink.UNKNOWN: "Unknown",
+    dingus.SenderLink.ACCEPTED: "Accepted",
+    dingus.SenderLink.REJECTED: "REJECTED",
+    dingus.SenderLink.RELEASED: "RELEASED",
+    dingus.SenderLink.MODIFIED: "MODIFIED"
 }

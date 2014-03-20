@@ -27,7 +27,7 @@ import time
 import uuid
 
 from proton import Message
-import fusion
+import dingus
 
 from utils import get_host_port
 from utils import server_socket
@@ -36,8 +36,8 @@ LOG = logging.getLogger()
 LOG.addHandler(logging.StreamHandler())
 
 
-class SocketConnection(fusion.ConnectionEventHandler):
-    """Associates a fusion Connection with a python network socket"""
+class SocketConnection(dingus.ConnectionEventHandler):
+    """Associates a dingus Connection with a python network socket"""
 
     def __init__(self, container, socket_, name, properties):
         """Create a Connection using socket_."""
@@ -74,7 +74,7 @@ class SocketConnection(fusion.ConnectionEventHandler):
     def process_input(self):
         """Called when socket is read-ready"""
         try:
-            fusion.read_socket_input(self.connection, self.socket)
+            dingus.read_socket_input(self.connection, self.socket)
         except Exception as e:
             LOG.error("Exception on socket read: %s", str(e))
             # may be redundant if closed cleanly:
@@ -85,7 +85,7 @@ class SocketConnection(fusion.ConnectionEventHandler):
     def send_output(self):
         """Called when socket is write-ready"""
         try:
-            fusion.write_socket_output(self.connection,
+            dingus.write_socket_output(self.connection,
                                        self.socket)
         except Exception as e:
             LOG.error("Exception on socket write: %s", str(e))
@@ -143,7 +143,7 @@ class SocketConnection(fusion.ConnectionEventHandler):
         LOG.debug("SASL done callback, result=%s", str(result))
 
 
-class MySenderLink(fusion.SenderEventHandler):
+class MySenderLink(dingus.SenderEventHandler):
     """Send messages until credit runs out."""
     def __init__(self, socket_conn, handle, src_addr=None):
         self.socket_conn = socket_conn
@@ -197,7 +197,7 @@ class MySenderLink(fusion.SenderEventHandler):
             self.send_message()
 
 
-class MyReceiverLink(fusion.ReceiverEventHandler):
+class MyReceiverLink(dingus.ReceiverEventHandler):
     """Receive messages, and drop them."""
     def __init__(self, socket_conn, handle, rx_addr=None):
         self.socket_conn = socket_conn
@@ -267,7 +267,7 @@ def main(argv=None):
 
     # create an AMQP container that will 'provide' the Server service
     #
-    container = fusion.Container("Server")
+    container = dingus.Container("Server")
     socket_connections = set()
 
     # Main loop: process I/O and timer events:
@@ -275,7 +275,7 @@ def main(argv=None):
     while True:
         readers, writers, timers = container.need_processing()
 
-        # map fusion Connections back to my SocketConnections:
+        # map dingus Connections back to my SocketConnections:
         readfd = [c.user_context for c in readers]
         writefd = [c.user_context for c in writers]
 

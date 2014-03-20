@@ -42,7 +42,7 @@ from guppy import hpy
 hp = hpy()
 
 from proton import Message
-import fusion
+import dingus
 
 LOG = logging.getLogger()
 LOG.addHandler(logging.StreamHandler())
@@ -59,8 +59,8 @@ reply_senders = {}
 socket_connections = {}  # indexed by name
 
 
-class SocketConnection(fusion.ConnectionEventHandler):
-    """Associates a fusion Connection with a python network socket"""
+class SocketConnection(dingus.ConnectionEventHandler):
+    """Associates a dingus Connection with a python network socket"""
 
     def __init__(self, name, socket_, container, conn_properties):
         self.name = name
@@ -90,7 +90,7 @@ class SocketConnection(fusion.ConnectionEventHandler):
     def process_input(self):
         """Called when socket is read-ready"""
         try:
-            fusion.read_socket_input(self.connection, self.socket)
+            dingus.read_socket_input(self.connection, self.socket)
         except Exception as e:
             LOG.error("Exception on socket read: %s", str(e))
             # may be redundant if closed cleanly:
@@ -102,7 +102,7 @@ class SocketConnection(fusion.ConnectionEventHandler):
     def send_output(self):
         """Called when socket is write-ready"""
         try:
-            fusion.write_socket_output(self.connection,
+            dingus.write_socket_output(self.connection,
                                        self.socket)
         except Exception as e:
             LOG.error("Exception on socket write: %s", str(e))
@@ -186,7 +186,7 @@ class SocketConnection(fusion.ConnectionEventHandler):
         LOG.debug("SASL done callback, result=%s", str(result))
 
 
-class MySenderLink(fusion.SenderEventHandler):
+class MySenderLink(dingus.SenderEventHandler):
     """Link for sending RPC replies."""
     def __init__(self, ident, connection, link_handle,
                  source_address, properties=None):
@@ -226,7 +226,7 @@ class MySenderLink(fusion.SenderEventHandler):
         LOG.debug("message sent callback, status=%s", str(status))
 
 
-class MyReceiverLink(fusion.ReceiverEventHandler):
+class MyReceiverLink(dingus.ReceiverEventHandler):
     """
     """
     def __init__(self, ident, connection, link_handle, target_address,
@@ -348,7 +348,7 @@ def main(argv=None):
 
     # create an AMQP container that will 'provide' the RPC service
     #
-    container = fusion.Container("example RPC service")
+    container = dingus.Container("example RPC service")
     global socket_connections
 
     while True:
@@ -361,7 +361,7 @@ def main(argv=None):
         writefd = []
         readers, writers, timers = container.need_processing()
 
-        # map fusion Connections back to my SocketConnections
+        # map dingus Connections back to my SocketConnections
         for c in readers:
             sc = c.user_context
             assert sc and isinstance(sc, SocketConnection)

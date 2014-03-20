@@ -19,10 +19,10 @@
 #
 from distutils.core import setup
 
-setup(name="fusion",
+setup(name="dingus",
       version="0.1.0",
       author="kgiusti",
       author_email="kgiusti@apache.org",
-      packages=["fusion"],
-      package_dir={"fusion": "python"},
+      packages=["dingus"],
+      package_dir={"dingus": "python"},
       license="Apache Software License")

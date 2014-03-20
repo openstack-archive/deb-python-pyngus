@@ -11,9 +11,9 @@ To run the tests:
 3. That's it!
 
 The unit tests may be run without tox, but your environment must be
-set up so that the module is able to be imported by the test scripts.
-For example, setting the PYTHONPATH environment variable to include
-the path to the build directory.
+set up so that the dingus module is able to be imported by the test
+scripts.  For example, setting the PYTHONPATH environment variable to
+include the path to the build directory.
 
 [1] You can still run the tests without installing Proton.  You can
 run the tests using a build of the Proton sources instead.  In order

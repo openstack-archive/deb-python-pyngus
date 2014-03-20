@@ -23,7 +23,7 @@ __all__ = [
 import logging
 import time
 
-from fusion.link import _SessionProxy
+from dingus.link import _SessionProxy
 
 import proton
 

@@ -1,4 +1,4 @@
-# The Project Formerly Known As Fusion #
+# Dingus #
 
 A callback-based messaging framework built around the QPID Proton
 engine.
