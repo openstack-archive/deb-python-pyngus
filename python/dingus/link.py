@@ -322,8 +322,11 @@ class SenderLink(_Link):
 
     def send(self, message, delivery_callback=None,
              handle=None, deadline=None):
-        self._pending_sends.append((message, delivery_callback, handle,
-                                   deadline))
+
+        self._pn_link.delivery("tag-%x" % self._next_tag)
+        self._next_tag += 1
+        send_req = (message, delivery_callback, handle, deadline)
+
         # TODO(kgiusti) deadline not supported yet
         if deadline:
             raise NotImplementedError("send timeout not supported yet!")
@@ -331,12 +334,15 @@ class SenderLink(_Link):
                          self._next_deadline > deadline):
             self._next_deadline = deadline
 
-        pn_delivery = self._pn_link.delivery("tag-%x" % self._next_tag)
-        self._next_tag += 1
-
-        if pn_delivery.writable:
-            send_req = self._pending_sends.popleft()
+        pn_delivery = self._pn_link.current
+        if pn_delivery and pn_delivery.writable:
+            # send oldest pending:
+            if self._pending_sends:
+                self._pending_sends.append(send_req)
+                send_req = self._pending_sends.popleft()
             self._write_msg(pn_delivery, send_req)
+        else:
+            self._pending_sends.append(send_req)
 
         return 0
 
