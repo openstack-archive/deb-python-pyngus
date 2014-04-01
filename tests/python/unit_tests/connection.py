@@ -17,6 +17,7 @@
 # under the License.
 #
 import common
+# import logging
 import os
 import time
 
@@ -27,6 +28,7 @@ import dingus
 class APITest(common.Test):
 
     def setup(self):
+        # logging.getLogger("dingus").setLevel(logging.DEBUG)
         self.container1 = dingus.Container("test-container-1")
         self.container2 = dingus.Container("test-container-2")
 
@@ -256,6 +258,7 @@ class APITest(common.Test):
         assert cb1.failed_ct == 0
         c1.process(time.time())
         assert cb1.failed_ct > 0
+        assert cb1.failed_error
 
     def test_io_output_close(self):
         """Premature output close should trigger failed callback."""
@@ -270,6 +273,7 @@ class APITest(common.Test):
         assert cb1.failed_ct == 0
         c1.process(time.time())
         assert cb1.failed_ct > 0
+        assert cb1.failed_error
 
     def test_process_reentrancy(self):
         """Catch any attempt to re-enter Connection.process() from a

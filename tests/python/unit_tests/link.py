@@ -221,21 +221,19 @@ class APITest(common.Test):
         assert rl_handler.message_received_ct == 5
         assert sender.credit == 0
         assert sender.pending == 1
-        # TODO(kgiusti) bug - probably shouldn't call back when pending >
-        # available credit
-        assert sl_handler.credit_granted_ct == 2
+        assert sl_handler.credit_granted_ct == 1
 
         receiver.add_capacity(1)
         self.process_connections()
         assert sender.credit == 0
         assert sender.pending == 0
-        assert sl_handler.credit_granted_ct == 3
+        assert sl_handler.credit_granted_ct == 1
 
         # verify new credit becomes available:
         receiver.add_capacity(1)
         self.process_connections()
         assert sender.credit == 1
-        assert sl_handler.credit_granted_ct == 4
+        assert sl_handler.credit_granted_ct == 2
 
     def test_send_presettled(self):
         sender, receiver = self._setup_sender_sync()

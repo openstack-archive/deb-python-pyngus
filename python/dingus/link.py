@@ -26,17 +26,16 @@ import collections
 import logging
 import proton
 
+from dingus.endpoint import Endpoint
+
 LOG = logging.getLogger(__name__)
 
 
-class _Link(object):
+class _Link(Endpoint):
     """A generic Link base class."""
 
     def __init__(self, connection, pn_link):
-        self._state = _Link._STATE_UNINIT
-        # last known endpoint state:
-        self._ep_state = (proton.Endpoint.LOCAL_UNINIT |
-                          proton.Endpoint.REMOTE_UNINIT)
+        super(_Link, self).__init__()
         self._connection = connection
         self._name = pn_link.name
         self._handler = None
@@ -154,89 +153,9 @@ class _Link(object):
             self._pn_link = None
             session.link_destroyed(self)  # destroy session _after_ link
 
-    # Link State Machine
-
-    # Link States:  (note: keep in sync with _STATE_MAP below!)
-    _STATE_UNINIT = 0  # initial state
-    _STATE_PENDING = 1  # waiting for remote to open
-    _STATE_REQUESTED = 2  # waiting for local to open
-    _STATE_CANCELLED = 3  # remote closed requested link before accepted
-    _STATE_ACTIVE = 4
-    _STATE_NEED_CLOSE = 5  # remote initiated close
-    _STATE_CLOSING = 6  # locally closed, pending remote
-    _STATE_CLOSED = 7  # terminal state
-    _STATE_REJECTED = 8  # terminal state, automatic link cleanup
-
-    # Events:
-    _LOCAL_ACTIVE = 1
-    _LOCAL_CLOSED = 2
-    _REMOTE_ACTIVE = 3
-    _REMOTE_CLOSED = 4
-
-    # state entry actions - link type specific:
-
-    @staticmethod
-    def _fsm_active(link):
-        """Both ends of the link have become active."""
-        link._do_active()
-
-    @staticmethod
-    def _fsm_need_close(link):
-        """The remote has closed its end of the link."""
-        link._do_need_close()
-
-    @staticmethod
-    def _fsm_closed(link):
-        """Both ends of the link have closed."""
-        link._do_closed()
-
-    @staticmethod
-    def _fsm_requested(link):
-        """Remote has created a new link."""
-        link._do_requested()
-
-    def _process_endpoints(self):
-        """Process any changes in link endpoint state."""
-        LOCAL_MASK = (proton.Endpoint.LOCAL_UNINIT |
-                      proton.Endpoint.LOCAL_ACTIVE |
-                      proton.Endpoint.LOCAL_CLOSED)
-        REMOTE_MASK = (proton.Endpoint.REMOTE_UNINIT |
-                       proton.Endpoint.REMOTE_ACTIVE |
-                       proton.Endpoint.REMOTE_CLOSED)
-        new_state = self._pn_link.state
-        old_state = self._ep_state
-        fsm = _Link._STATE_MAP[self._state]
-        if ((new_state & LOCAL_MASK) != (old_state & LOCAL_MASK)):
-            event = None
-            if new_state & proton.Endpoint.LOCAL_ACTIVE:
-                event = _Link._LOCAL_ACTIVE
-            elif new_state & proton.Endpoint.LOCAL_CLOSED:
-                event = _Link._LOCAL_CLOSED
-            if event:
-                entry = fsm.get(event)
-                if entry:
-                    LOG.debug("Old State: %d Event %d New State: %d",
-                              self._state, event, entry[0])
-                    self._state = entry[0]
-                    if entry[1]:
-                        entry[1](self)
-
-        fsm = _Link._STATE_MAP[self._state]
-        if ((new_state & REMOTE_MASK) != (old_state & REMOTE_MASK)):
-            event = None
-            if new_state & proton.Endpoint.REMOTE_ACTIVE:
-                event = _Link._REMOTE_ACTIVE
-            elif new_state & proton.Endpoint.REMOTE_CLOSED:
-                event = _Link._REMOTE_CLOSED
-            if event:
-                entry = fsm.get(event)
-                if entry:
-                    LOG.debug("Old State: %d Event %d New State: %d",
-                              self._state, event, entry[0])
-                    self._state = entry[0]
-                    if entry[1]:
-                        entry[1](self)
-        self._ep_state = new_state
+    @property
+    def _endpoint_state(self):
+        return self._pn_link.state
 
     def _process_delivery(self, pn_delivery):
         raise NotImplementedError("Must Override")
@@ -246,42 +165,8 @@ class _Link(object):
 
     def _session_closed(self):
         """Remote has closed the session used by this link."""
-        fsm = _Link._STATE_MAP[self._state]
-        entry = fsm.get(_Link._REMOTE_CLOSED)
-        if entry:
-            LOG.debug("Old State: %d Event %d New State: %d",
-                      self._state, _Link._REMOTE_CLOSED, entry[0])
-            self._state = entry[0]
-            if entry[1]:
-                entry[1](self)
-
-_Link._STATE_MAP = [  # {event: (next-state, action), ...}
-    # _STATE_UNINIT:
-    {_Link._LOCAL_ACTIVE:  (_Link._STATE_PENDING,    None),
-     _Link._REMOTE_ACTIVE: (_Link._STATE_REQUESTED,  _Link._fsm_requested),
-     _Link._REMOTE_CLOSED: (_Link._STATE_NEED_CLOSE, _Link._fsm_need_close)},
-    # _STATE_PENDING:
-    {_Link._LOCAL_CLOSED:  (_Link._STATE_CLOSING,    None),
-     _Link._REMOTE_ACTIVE: (_Link._STATE_ACTIVE,     _Link._fsm_active),
-     _Link._REMOTE_CLOSED: (_Link._STATE_NEED_CLOSE, _Link._fsm_need_close)},
-    # _STATE_REQUESTED:
-    {_Link._LOCAL_CLOSED:  (_Link._STATE_REJECTED,   None),
-     _Link._LOCAL_ACTIVE:  (_Link._STATE_ACTIVE,     _Link._fsm_active),
-     _Link._REMOTE_CLOSED: (_Link._STATE_CANCELLED,  None)},
-    # _STATE_CANCELLED:
-    {_Link._LOCAL_CLOSED:  (_Link._STATE_REJECTED,   None),
-     _Link._LOCAL_ACTIVE:  (_Link._STATE_NEED_CLOSE, _Link._fsm_need_close)},
-    # _STATE_ACTIVE:
-    {_Link._LOCAL_CLOSED:  (_Link._STATE_CLOSING,    None),
-     _Link._REMOTE_CLOSED: (_Link._STATE_NEED_CLOSE, _Link._fsm_need_close)},
-    # _STATE_NEED_CLOSE:
-    {_Link._LOCAL_CLOSED:  (_Link._STATE_CLOSED,     _Link._fsm_closed)},
-    # _STATE_CLOSING:
-    {_Link._REMOTE_CLOSED: (_Link._STATE_CLOSED,     _Link._fsm_closed)},
-    # _STATE_CLOSED:
-    {},
-    # _STATE_REJECTED:
-    {}]
+        # simulate a remote-closed event:
+        self._dispatch_event(Endpoint.REMOTE_CLOSED)
 
 
 class SenderEventHandler(object):
@@ -387,6 +272,9 @@ class SenderLink(_Link):
         info = {"condition": pn_condition} if pn_condition else None
         while self._send_requests:
             key, send_req = self._send_requests.popitem()
+            info = None
+            if pn_condition:
+                info = {"condition": pn_condition}
             # TODO(kgiusti) fix - must be async!
             send_req.destroy(SenderLink.ABORTED, info)
         super(SenderLink, self).close(pn_condition)
@@ -443,19 +331,27 @@ class SenderLink(_Link):
             pn_delivery.settle()
 
     def _process_credit(self):
+        # check if any pending deliveries are now writable:
+        pn_delivery = self._pn_link.current
+        while (self._pending_sends and
+               pn_delivery and pn_delivery.writable):
+            self._process_delivery(pn_delivery)
+            pn_delivery = self._pn_link.current
+
         # Alert if credit has become available
-        if self._handler and self._state == _Link._STATE_ACTIVE:
-            new_credit = self._pn_link.credit
+        new_credit = self._pn_link.credit
+        if self._handler:
             if self._last_credit <= 0 and new_credit > 0:
                 LOG.debug("Credit is available, link=%s", self.name)
                 self._handler.credit_granted(self)
-            self._last_credit = new_credit
+        self._last_credit = new_credit
 
     def _write_msg(self, pn_delivery, send_req):
         # given a writable delivery, send a message
         LOG.debug("Sending message to engine, tag=%s", send_req.tag)
         self._pn_link.send(send_req.message.encode())
         self._pn_link.advance()
+        self._last_credit = self._pn_link.credit
         if not send_req.callback:
             # no disposition callback, so we can discard the send request and
             # settle the delivery immediately
@@ -470,26 +366,26 @@ class SenderLink(_Link):
             pass
         send_req.destroy(SenderLink.TIMED_OUT, None)
 
-    # state machine actions:
+    # endpoint state machine actions:
 
-    def _do_active(self):
+    def _ep_active(self):
         LOG.debug("Link is up")
         if self._handler:
             self._handler.sender_active(self)
 
-    def _do_need_close(self):
+    def _ep_need_close(self):
         # TODO(kgiusti) error reporting
         LOG.debug("Link remote closed")
         if self._handler:
             cond = self._pn_link.remote_condition
             self._handler.sender_remote_closed(self, cond)
 
-    def _do_closed(self):
+    def _ep_closed(self):
         LOG.debug("Link close completed")
         if self._handler:
             self._handler.sender_closed(self)
 
-    def _do_requested(self):
+    def _ep_requested(self):
         LOG.debug("Remote has initiated a link")
         handler = self._connection._handler
         if handler:
@@ -612,25 +508,25 @@ class ReceiverLink(_Link):
         # Only used by SenderLink
         pass
 
-    # state machine actions:
+    # endpoint state machine actions:
 
-    def _do_active(self):
+    def _ep_active(self):
         LOG.debug("Link is up")
         if self._handler:
             self._handler.receiver_active(self)
 
-    def _do_need_close(self):
+    def _ep_need_close(self):
         LOG.debug("Link remote closed")
         if self._handler:
             cond = self._pn_link.remote_condition
             self._handler.receiver_remote_closed(self, cond)
 
-    def _do_closed(self):
+    def _ep_closed(self):
         LOG.debug("Link close completed")
         if self._handler:
             self._handler.receiver_closed(self)
 
-    def _do_requested(self):
+    def _ep_requested(self):
         LOG.debug("Remote has initiated a ReceiverLink")
         handler = self._connection._handler
         if handler:
@@ -656,9 +552,10 @@ class ReceiverLink(_Link):
                                        props)
 
 
-class _SessionProxy(object):
+class _SessionProxy(Endpoint):
     """Corresponds to a Proton Session object."""
     def __init__(self, connection, pn_session=None):
+        super(_SessionProxy, self).__init__()
         self._locally_initiated = not pn_session
         self._connection = connection
         if not pn_session:
@@ -703,7 +600,17 @@ class _SessionProxy(object):
             self._pn_session = None
             self._connection = None
 
-    def remote_closed(self):
+    @property
+    def _endpoint_state(self):
+        return self._pn_session.state
+
+    # endpoint state machine actions:
+
+    def _ep_requested(self):
+        """Peer has requested a new session."""
+        self.open()
+
+    def _ep_need_close(self):
         """Peer has closed its end of the session."""
         links = self._links.copy()  # may modify _links
         for link in links:

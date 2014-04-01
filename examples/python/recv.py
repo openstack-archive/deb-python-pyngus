@@ -19,6 +19,7 @@
 #
 """ Minimal message receive example code."""
 
+import logging
 import optparse
 import sys
 import uuid
@@ -27,6 +28,9 @@ import dingus
 from utils import connect_socket
 from utils import get_host_port
 from utils import process_connection
+
+LOG = logging.getLogger()
+LOG.addHandler(logging.StreamHandler())
 
 
 def main(argv=None):
@@ -39,6 +43,8 @@ def main(argv=None):
     parser.add_option("--idle", dest="idle_timeout", type="int",
                       default=0,
                       help="Idle timeout for connection (seconds).")
+    parser.add_option("--debug", dest="debug", action="store_true",
+                      help="enable debug logging")
     parser.add_option("--source", dest="source_addr", type="string",
                       help="Address for link source.")
     parser.add_option("--target", dest="target_addr", type="string",
@@ -49,6 +55,8 @@ def main(argv=None):
                       help="Certificate Authority PEM file")
 
     opts, extra = parser.parse_args(args=argv)
+    if opts.debug:
+        LOG.setLevel(logging.DEBUG)
     host, port = get_host_port(opts.server)
     my_socket = connect_socket(host, port)
 

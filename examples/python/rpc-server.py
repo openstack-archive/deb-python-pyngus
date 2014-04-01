@@ -42,7 +42,7 @@ import uuid
 # from guppy import hpy
 # hp = hpy()
 
-from proton import Message
+from proton import Message, Condition
 import dingus
 
 LOG = logging.getLogger()
@@ -268,7 +268,9 @@ class MyReceiverLink(dingus.ReceiverEventHandler):
         if not reply_to or reply_to not in reply_senders:
             LOG.error("sender for reply-to not found, reply-to=%s",
                       str(reply_to))
-            self._link.message_rejected(handle, "Bad reply-to address")
+            info = Condition("not-found",
+                             "Bad reply-to address: %s" % str(reply_to))
+            self._link.message_rejected(handle, info)
         else:
             my_sender = reply_senders[reply_to]
             correlation_id = message.correlation_id
@@ -276,7 +278,9 @@ class MyReceiverLink(dingus.ReceiverEventHandler):
             if (not isinstance(method_map, dict) or
                     'method' not in method_map):
                 LOG.error("no method given, map=%s", str(method_map))
-                self._link.message_rejected(handle, "Bad format")
+                info = Condition("invalid-field",
+                                 "no method given, map=%s" % str(method_map))
+                self._link.message_rejected(handle, info)
             else:
                 response = Message()
                 response.address = reply_to
