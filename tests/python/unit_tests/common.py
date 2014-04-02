@@ -77,14 +77,16 @@ def do_connection_io(c1, c2):
     return o1 > 0 or o2 > 0
 
 
-def process_connections(c1, c2):
+def process_connections(c1, c2, timestamp=None):
     """Do I/O and protocol processing on two connected Connections until no
     further data is transferred."""
-    c1.process(time.time())
-    c2.process(time.time())
+    if timestamp is None:
+        timestamp = time.time()
+    c1.process(timestamp)
+    c2.process(timestamp)
     while do_connection_io(c1, c2):
-        c1.process(time.time())
-        c2.process(time.time())
+        c1.process(timestamp)
+        c2.process(timestamp)
 
 
 def _validate_callback(connection):
@@ -195,15 +197,17 @@ class DeliveryCallback(object):
     def __init__(self):
         self.link = None
         self.handle = None
-        self.state = None
+        self.status = None
         self.info = None
+        self.count = 0
 
-    def __call__(self, link, handle, state, info):
+    def __call__(self, link, handle, status, info):
         _validate_callback(link.connection)
         self.link = link
         self.handle = handle
-        self.state = state
+        self.status = status
         self.info = info
+        self.count += 1
 
 
 class ReceiverCallback(dingus.ReceiverEventHandler):

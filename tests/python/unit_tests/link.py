@@ -17,6 +17,7 @@
 # under the License.
 #
 import common
+# import logging
 
 from proton import Condition
 from proton import Message
@@ -26,11 +27,16 @@ import dingus
 
 class APITest(common.Test):
 
-    def setup(self):
+    def setup(self, props=None):
+        # logging.getLogger("dingus").setLevel(logging.DEBUG)
         self.container1 = dingus.Container("test-container-1")
         self.conn1_handler = common.ConnCallback()
+        if props is None:
+            # props = {"x-trace-protocol": True}
+            props = {"x-trace-protocol": False}
         self.conn1 = self.container1.create_connection("conn1",
-                                                       self.conn1_handler)
+                                                       self.conn1_handler,
+                                                       props)
         self.conn1.open()
 
         self.container2 = dingus.Container("test-container-2")
@@ -39,8 +45,8 @@ class APITest(common.Test):
                                                        self.conn2_handler)
         self.conn2.open()
 
-    def process_connections(self):
-        common.process_connections(self.conn1, self.conn2)
+    def process_connections(self, timestamp=None):
+        common.process_connections(self.conn1, self.conn2, timestamp)
 
     def teardown(self):
         if self.conn1:
@@ -262,7 +268,7 @@ class APITest(common.Test):
         self.process_connections()
         assert cb.link == sender
         assert cb.handle == "my-handle"
-        assert cb.state == dingus.SenderLink.ACCEPTED
+        assert cb.status == dingus.SenderLink.ACCEPTED
 
     def test_send_released(self):
         cb = common.DeliveryCallback()
@@ -279,7 +285,7 @@ class APITest(common.Test):
         self.process_connections()
         assert cb.link == sender
         assert cb.handle == "my-handle"
-        assert cb.state == dingus.SenderLink.RELEASED
+        assert cb.status == dingus.SenderLink.RELEASED
 
     def test_send_rejected(self):
         cb = common.DeliveryCallback()
@@ -298,7 +304,7 @@ class APITest(common.Test):
         self.process_connections()
         assert cb.link == sender
         assert cb.handle == "my-handle"
-        assert cb.state == dingus.SenderLink.REJECTED
+        assert cb.status == dingus.SenderLink.REJECTED
         r_cond = cb.info.get("condition")
         assert r_cond and r_cond.name == "itchy"
 
@@ -318,14 +324,134 @@ class APITest(common.Test):
         self.process_connections()
         assert cb.link == sender
         assert cb.handle == "my-handle"
-        assert cb.state == dingus.SenderLink.MODIFIED
+        assert cb.status == dingus.SenderLink.MODIFIED
         assert cb.info.get("delivery-failed") is False
         assert cb.info.get("undeliverable-here") is True
         info = cb.info.get("message-annotations")
         assert info and info["dog"] == 1
 
-    def XXXtest_send_timed_out(self):
-        print("TBD")
+    def test_send_expired_no_credit(self):
+        cb = common.DeliveryCallback()
+        sender, receiver = self._setup_receiver_sync()
+        rl_handler = receiver.user_context
+        msg = Message()
+        msg.body = "Hi"
+        sender.send(msg, cb, "my-handle", deadline=10)
+        # receiver.add_capacity(1)
+        self.process_connections(timestamp=9)
+        assert rl_handler.message_received_ct == 0
+        assert sender.pending == 1
+        assert cb.status is None
+        self.process_connections(timestamp=10)
+        assert sender.pending == 0
+        assert cb.status == dingus.SenderLink.TIMED_OUT
+
+    def test_send_expired_late_reply(self):
+        cb = common.DeliveryCallback()
+        sender, receiver = self._setup_sender_sync()
+        rl_handler = receiver.user_context
+        receiver.add_capacity(1)
+        self.process_connections(timestamp=1)
+        msg = Message()
+        msg.body = "Hi"
+        sender.send(msg, cb, "my-handle", deadline=10)
+        self.process_connections(timestamp=9)
+        assert rl_handler.message_received_ct == 1
+        assert sender.pending == 1
+        assert sender.credit == 0
+        assert cb.status is None
+        self.process_connections(timestamp=10)
+        assert rl_handler.message_received_ct == 1
+        assert sender.pending == 0
+        assert cb.status == dingus.SenderLink.TIMED_OUT
+        # late reply:
+        assert cb.count == 1
+        msg2, handle = rl_handler.received_messages[0]
+        receiver.message_accepted(handle)
+        self.process_connections(timestamp=15)
+        assert cb.count == 1
+
+    def test_send_expired_no_reply(self):
+        cb = common.DeliveryCallback()
+        sender, receiver = self._setup_sender_sync()
+        rl_handler = receiver.user_context
+        msg = Message()
+        msg.body = "Hi"
+        sender.send(msg, cb, "my-handle", deadline=10)
+        self.process_connections(timestamp=1)
+        assert rl_handler.message_received_ct == 0
+        assert sender.pending == 1
+        assert sender.credit == 0
+        assert cb.count == 0
+        receiver.add_capacity(1)
+        self.process_connections(timestamp=2)
+        assert rl_handler.message_received_ct == 1
+        assert sender.pending == 1
+        assert sender.credit == 0
+        assert cb.count == 0
+        self.process_connections(timestamp=12)
+        assert sender.pending == 0
+        assert cb.count == 1
+        assert cb.status == dingus.SenderLink.TIMED_OUT
+
+    def test_send_expired_no_callback(self):
+        sender, receiver = self._setup_receiver_sync()
+        rl_handler = receiver.user_context
+        msg = Message()
+        msg.body = "Hi"
+        sender.send(msg, deadline=10)
+        assert sender.pending == 1
+        self.process_connections(timestamp=12)
+        assert rl_handler.message_received_ct == 0
+        assert sender.pending == 0
+
+    def test_send_deadline_idle(self):
+        """Validate the connection's deadline processing."""
+
+        self.setup(props={"idle-time-out": 99})
+
+        sender1 = self.conn1.create_sender("src1", "tgt1")
+        sender1.open()
+        self.process_connections(timestamp=1)
+        assert self.conn2_handler.receiver_requested_ct == 1
+        args = self.conn2_handler.receiver_requested_args[0]
+        receiver1 = self.conn2.accept_receiver(args.link_handle)
+        receiver1.open()
+
+        sender2 = self.conn1.create_sender("src2", "tgt2")
+        sender2.open()
+        self.process_connections(timestamp=1)
+        assert self.conn2_handler.receiver_requested_ct == 2
+        args = self.conn2_handler.receiver_requested_args[1]
+        receiver2 = self.conn2.accept_receiver(args.link_handle)
+        receiver2.open()
+
+        self.process_connections(timestamp=1)
+        assert self.conn1.deadline == 100.0
+
+        msg = Message()
+        msg.body = "Hi"
+        sender1.send(msg, deadline=11)
+        assert self.conn1.deadline == 11
+        self.process_connections(timestamp=2)
+        assert self.conn1.deadline == 11
+
+        sender2.send(msg, deadline=7)
+        assert self.conn1.deadline == 7
+        self.process_connections(timestamp=7)
+        assert self.conn1.deadline == 11
+        self.process_connections(timestamp=11)
+        assert self.conn1.deadline == 100
+
+        # next send timeout after the idle keepalive:
+        sender1.send(msg, deadline=101)
+        self.process_connections(timestamp=11)
+        assert self.conn1.deadline == 100
+
+        # have remote send idle, next deadline should
+        # be the pending send:
+        self.process_connections(timestamp=self.conn2.deadline)
+        assert self.conn1.deadline == 101
 
     def XXXtest_send_aborted(self):
         print("TBD")

@@ -20,8 +20,10 @@ __all__ = [
     "Connection"
 ]
 
+import heapq
 import logging
 import time
+from warnings import warn
 
 from dingus.link import _SessionProxy
 
@@ -150,10 +152,13 @@ class Connection(object):
         self._sender_links = {}    # SenderLink
         self._receiver_links = {}  # ReceiverLink
 
+        self._timers = {}  # indexed by expiration date
+        self._timers_heap = []  # sorted by expiration date
+
         self._read_done = False
         self._write_done = False
         self._error = None
-        self._next_tick = 0
+        self._next_deadline = 0
         self._user_context = None
         self._active = False
         self._in_process = False
@@ -199,14 +204,14 @@ class Connection(object):
     # TODO(kgiusti) - think about server side use of sasl!
     @property
     def pn_sasl(self):
-        return self.sasl
-
-    # TODO(kgiusti) - deprecate in favor of pn_sasl
-    @property
-    def sasl(self):
         if not self._pn_sasl:
             self._pn_sasl = self._pn_transport.sasl()
         return self._pn_sasl
+
+    @property
+    def sasl(self):
+        warn(DeprecationWarning("sasl deprecated, use pn_sasl instead"))
+        return self.pn_sasl
 
     def pn_ssl(self):
         """Return the Proton SSL context for this Connection."""
@@ -278,10 +283,8 @@ class Connection(object):
                 if self._handler:
                     self._handler.connection_failed(self, self._error)
                 # nag application until connection is destroyed
-                self._next_tick = now
+                self._next_deadline = now
                 return now
-
-            self._next_tick = self._pn_transport.tick(now)
 
             # wait until SASL has authenticated
             # TODO(kgiusti) Server-side SASL
@@ -292,7 +295,7 @@ class Connection(object):
                               str(self._pn_sasl.state))
                     if self._handler:
                         self._handler.sasl_step(self, self._pn_sasl)
-                    return
+                    return self._next_deadline
 
                 if self._handler:
                     self._handler.sasl_done(self, self._pn_sasl,
@@ -320,20 +323,27 @@ class Connection(object):
                 session = pn_link.session.context
                 if (pn_link.is_sender and
                         pn_link.name not in self._sender_links):
-                    LOG.debug("Remotely initiated Sender needs init")
+                    LOG.debug("Remotely initiated Sender %s needs init",
+                              pn_link.name)
                     link = session.request_sender(pn_link)
                     self._sender_links[pn_link.name] = link
                     link._process_endpoints()
                 elif (pn_link.is_receiver and
                       pn_link.name not in self._receiver_links):
-                    LOG.debug("Remotely initiated Receiver needs init")
+                    LOG.debug("Remotely initiated Receiver %s needs init",
+                              pn_link.name)
                     link = session.request_receiver(pn_link)
                     self._receiver_links[pn_link.name] = link
                     link._process_endpoints()
-                else:
-                    LOG.debug("Ignoring request link - name in use %s",
-                              pn_link.name)
                 pn_link = next_pn_link
+
+            # process timer events:
+            timer_deadline = self._expire_timers(now)
+            transport_deadline = self._pn_transport.tick(now)
+            if timer_deadline and transport_deadline:
+                self._next_deadline = min(timer_deadline, transport_deadline)
+            else:
+                self._next_deadline = timer_deadline or transport_deadline
 
             # TODO(kgiusti) won't scale - use new Engine event API
             pn_link = self._pn_connection.link_head(self._ACTIVE)
@@ -379,7 +389,7 @@ class Connection(object):
                     self._handler.connection_remote_closed(self, cond)
             elif self._pn_connection.state == self._CLOSED:
                 LOG.debug("Connection close complete")
-                self._next_tick = 0
+                self._next_deadline = 0
                 if self._handler:
                     self._handler.connection_closed(self)
 
@@ -391,16 +401,20 @@ class Connection(object):
             #     link = link.next(0)
             # print "Link Count %d" % count
 
-            return self._next_tick
+            return self._next_deadline
 
         finally:
             self._in_process = False
 
     @property
     def next_tick(self):
-        """Timestamp for next call to tick()
-        """
-        return self._next_tick
+        warn(DeprecationWarning("next_tick deprecated, use deadline instead"))
+        return self.deadline
+
+    @property
+    def deadline(self):
+        """Must invoke process() on or before this timestamp."""
+        return self._next_deadline
 
     @property
     def needs_input(self):
@@ -564,7 +578,7 @@ class Connection(object):
             self._write_done = True
             self._error = error
             # report error during the next call to process()
-            self._next_tick = time.time()
+            self._next_deadline = time.time()
         return self.EOS
 
     def _configure_ssl(self, properties):
@@ -611,3 +625,32 @@ class Connection(object):
             pn_ssl.peer_hostname = hostname
         LOG.debug("SSL configured for connection %s", self._name)
         return pn_ssl
+
+    def _add_timer(self, deadline, callback):
+        callbacks = self._timers.get(deadline)
+        if callbacks:
+            callbacks.add(callback)
+        else:
+            callbacks = set()
+            callbacks.add(callback)
+            self._timers[deadline] = callbacks
+            heapq.heappush(self._timers_heap, deadline)
+            if deadline < self._next_deadline:
+                self._next_deadline = deadline
+
+    def _cancel_timer(self, deadline, callback):
+        callbacks = self._timers.get(deadline)
+        if callbacks:
+            callbacks.discard(callback)
+        # next expire will discard empty deadlines
+
+    def _expire_timers(self, now):
+        while (self._timers_heap and
+               self._timers_heap[0] <= now):
+            deadline = heapq.heappop(self._timers_heap)
+            callbacks = self._timers.get(deadline)
+            if callbacks:
+                del self._timers[deadline]
+                for cb in callbacks:
+                    cb()
+        return self._timers_heap[0] if self._timers_heap else 0

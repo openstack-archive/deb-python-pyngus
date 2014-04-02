@@ -310,10 +310,36 @@ class SenderLink(_Link):
     RELEASED = 3
     MODIFIED = 4
 
+    class _SendRequest(object):
+        """Tracks sending a single message."""
+        def __init__(self, link, tag, message, callback, handle, deadline):
+            self.link = link
+            self.tag = tag
+            self.message = message
+            self.callback = callback
+            self.handle = handle
+            self.deadline = deadline
+            self.link._send_requests[self.tag] = self
+            if deadline:
+                self.link._connection._add_timer(deadline, self)
+
+        def __call__(self):
+            """Invoked by Connection on timeout (now <= deadline)."""
+            self.link._send_expired(self)
+
+        def destroy(self, state, info):
+            """Invoked on final completion of send."""
+            if self.deadline and state != SenderLink.TIMED_OUT:
+                self.link._connection._cancel_timer(self.deadline, self)
+            if self.tag in self.link._send_requests:
+                del self.link._send_requests[self.tag]
+            if self.callback:
+                self.callback(self.link, self.handle, state, info)
+
     def __init__(self, connection, pn_link):
         super(SenderLink, self).__init__(connection, pn_link)
-        self._pending_sends = collections.deque()
-        self._pending_acks = {}
+        self._send_requests = {}  # indexed by tag
+        self._pending_sends = collections.deque()  # tags in order sent
         self._next_deadline = 0
         self._next_tag = 0
         self._last_credit = 0
@@ -322,52 +348,47 @@ class SenderLink(_Link):
 
     def send(self, message, delivery_callback=None,
              handle=None, deadline=None):
-
-        self._pn_link.delivery("tag-%x" % self._next_tag)
+        tag = "dingus-tag-%s" % self._next_tag
         self._next_tag += 1
-        send_req = (message, delivery_callback, handle, deadline)
+        send_req = SenderLink._SendRequest(self, tag, message,
+                                           delivery_callback, handle,
+                                           deadline)
+        self._pn_link.delivery(tag)
+        LOG.debug("Sending a message, tag=%s", tag)
 
-        # TODO(kgiusti) deadline not supported yet
         if deadline:
-            raise NotImplementedError("send timeout not supported yet!")
-        if deadline and (self._next_deadline == 0 or
-                         self._next_deadline > deadline):
-            self._next_deadline = deadline
+            self._connection._add_timer(deadline, send_req)
 
         pn_delivery = self._pn_link.current
         if pn_delivery and pn_delivery.writable:
             # send oldest pending:
             if self._pending_sends:
-                self._pending_sends.append(send_req)
-                send_req = self._pending_sends.popleft()
+                self._pending_sends.append(tag)
+                tag = self._pending_sends.popleft()
+                send_req = self._send_requests[tag]
+                LOG.debug("Sending previous pending message, tag=%s", tag)
             self._write_msg(pn_delivery, send_req)
         else:
-            self._pending_sends.append(send_req)
+            LOG.debug("Send is pending for credit, tag=%s", tag)
+            self._pending_sends.append(tag)
 
         return 0
 
     @property
     def pending(self):
-        return len(self._pending_sends) + len(self._pending_acks)
+        return len(self._send_requests)
 
     @property
     def credit(self):
         return self._pn_link.credit
 
     def close(self, pn_condition=None):
-        while self._pending_sends:
-            i = self._pending_sends.popleft()
-            cb = i[1]
-            if cb:
-                handle = i[2]
-                # TODO(kgiusti) fix - must be async!
-                cb(self, handle, self.ABORTED, {"condition": pn_condition})
-        for i in self._pending_acks.itervalues():
-            cb = i[1]
-            handle = i[2]
+        self._pending_sends.clear()
+        while self._send_requests:
+            key, send_req = self._send_requests.popitem()
             # TODO(kgiusti) fix - must be async!
-            cb(self, handle, self.ABORTED, {"condition": pn_condition})
-        self._pending_acks.clear()
+            send_req.destroy(self, SenderLink.ABORTED,
+                             {"condition": pn_condition})
         super(SenderLink, self).close(pn_condition)
 
     def reject(self, pn_condition=None):
@@ -389,10 +410,10 @@ class SenderLink(_Link):
             proton.Disposition.MODIFIED: SenderLink.MODIFIED,
         }
 
-        if pn_delivery.tag in self._pending_acks:
+        LOG.debug("Processing delivery, tag=%s", str(pn_delivery.tag))
+        if pn_delivery.tag in self._send_requests:
             if pn_delivery.settled:  # remote has finished
                 LOG.debug("Remote has settled a sent msg")
-                send_req = self._pending_acks.pop(pn_delivery.tag)
                 state = _disposition_state_map.get(pn_delivery.remote_state,
                                                    self.UNKNOWN)
                 pn_disposition = pn_delivery.remote
@@ -406,42 +427,48 @@ class SenderLink(_Link):
                     annotations = pn_disposition.annotations
                     if annotations:
                         info["message-annotations"] = annotations
-                cb = send_req[1]
-                handle = send_req[2]
-                cb(self, handle, state, info)
+                send_req = self._send_requests.pop(pn_delivery.tag)
+                send_req.destroy(state, info)
                 pn_delivery.settle()
+            elif pn_delivery.writable:
+                # we can now send on this delivery
+                LOG.debug("Delivery has become writable")
+                if self._pending_sends:
+                    tag = self._pending_sends.popleft()
+                    send_req = self._send_requests[tag]
+                    self._write_msg(pn_delivery, send_req)
         else:
-            # not for a sent msg, use it to send the next
-            if pn_delivery.writable and self._pending_sends:
-                send_req = self._pending_sends.popleft()
-                self._write_msg(pn_delivery, send_req)
-            else:
-                # what else is there???
-                pn_delivery.settle()
+            # tag no longer valid, expired or canceled send?
+            LOG.debug("Delivery ignored, tag=%s", str(pn_delivery.tag))
+            pn_delivery.settle()
 
     def _process_credit(self):
         # Alert if credit has become available
         if self._handler and self._state == _Link._STATE_ACTIVE:
             new_credit = self._pn_link.credit
             if self._last_credit <= 0 and new_credit > 0:
+                LOG.debug("Credit is available, link=%s", self.name)
                 self._handler.credit_granted(self)
             self._last_credit = new_credit
 
     def _write_msg(self, pn_delivery, send_req):
         # given a writable delivery, send a message
-        # send_req = (msg, cb, handle, deadline)
-        LOG.debug("Sending a pending message")
-        msg = send_req[0]
-        cb = send_req[1]
-        self._pn_link.send(msg.encode())
+        LOG.debug("Sending message to engine, tag=%s", send_req.tag)
+        self._pn_link.send(send_req.message.encode())
         self._pn_link.advance()
-        if cb:  # delivery callback given
-            if pn_delivery.tag in self._pending_acks:
-                raise Exception("Duplicate delivery tag?")
-            self._pending_acks[pn_delivery.tag] = send_req
-        else:
-            # no status required, so settle it now.
+        if not send_req.callback:
+            # no disposition callback, so we can discard the send request and
+            # settle the delivery immediately
+            send_req.destroy(SenderLink.UNKNOWN, {})
             pn_delivery.settle()
+
+    def _send_expired(self, send_req):
+        LOG.debug("Send request timed-out, tag=%s", send_req.tag)
+        try:
+            self._pending_sends.remove(send_req.tag)
+        except ValueError:
+            pass
+        send_req.destroy(SenderLink.TIMED_OUT, None)
 
     # state machine actions:
 
