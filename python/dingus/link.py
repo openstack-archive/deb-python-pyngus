@@ -150,7 +150,7 @@ class _Link(object):
         if self._pn_link:
             session = self._pn_link.session.context
             self._pn_link.context = None
-            self._pn_link.free()
+            # self._pn_link.free()
             self._pn_link = None
             session.link_destroyed(self)  # destroy session _after_ link
 
@@ -699,7 +699,7 @@ class _SessionProxy(object):
             # no more links
             LOG.debug("destroying unneeded session")
             self._pn_session.close()
-            self._pn_session.free()
+            # self._pn_session.free()
             self._pn_session = None
             self._connection = None
 
