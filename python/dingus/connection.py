@@ -349,8 +349,9 @@ class Connection(object):
             pn_link = self._pn_connection.link_head(self._ACTIVE)
             while pn_link:
                 next_pn_link = pn_link.next(self._ACTIVE)
-                pn_link.context._process_endpoints()
-                pn_link.context._process_credit()
+                if pn_link.context:
+                    pn_link.context._process_endpoints()
+                    pn_link.context._process_credit()
                 pn_link = next_pn_link
 
             # process the delivery work queue
@@ -365,13 +366,15 @@ class Connection(object):
             pn_link = self._pn_connection.link_head(self._REMOTE_CLOSE)
             while pn_link:
                 next_pn_link = pn_link.next(self._REMOTE_CLOSE)
-                pn_link.context._process_endpoints()
+                if pn_link.context:
+                    pn_link.context._process_endpoints()
                 pn_link = next_pn_link
 
             pn_link = self._pn_connection.link_head(self._CLOSED)
             while pn_link:
                 next_pn_link = pn_link.next(self._CLOSED)
-                pn_link.context._process_endpoints()
+                if pn_link.context:
+                    pn_link.context._process_endpoints()
                 pn_link = next_pn_link
 
             pn_session = self._pn_connection.session_head(self._REMOTE_CLOSE)
