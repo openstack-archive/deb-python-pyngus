@@ -453,5 +453,40 @@ class APITest(common.Test):
         self.process_connections(timestamp=self.conn2.deadline)
         assert self.conn1.deadline == 101
 
-    def XXXtest_send_aborted(self):
-        print("TBD")
+    def test_send_close_on_ack(self):
+        """Verify that the sender can close itself when delivery complete."""
+        class SendDoneCallback(common.DeliveryCallback):
+            def __call__(self, link, handle, status, info):
+                super(SendDoneCallback, self).__call__(link, handle,
+                                                       status, info)
+                # verify that we can safely close ourself, even if there is a
+                # send that has not completed:
+                cond = Condition("indigestion", "old sushi",
+                                 {"smoked eel": "yummy"})
+                link.close(cond)
+
+        sender, receiver = self._setup_sender_sync()
+        rl_handler = receiver.user_context
+        receiver.add_capacity(1)
+        msg = Message()
+        msg.body = "Hi"
+        cb = SendDoneCallback()
+        sender.send(msg, cb, "my-handle")
+        # no credit - this one won't get sent:
+        sender.send(msg, cb, "my-handle")
+        self.process_connections()
+        assert sender.active
+        assert rl_handler.message_received_ct == 1
+        msg2, handle = rl_handler.received_messages[0]
+        receiver.message_accepted(handle)
+        self.process_connections()
+        assert not sender.active
+        assert cb.count == 2
+        # last callback should be abort:
+        cond = cb.info.get('condition')
+        assert cond
+        assert cond.name == "indigestion"
+        assert cb.status == dingus.SenderLink.ABORTED
+        receiver.close()
+        self.process_connections()
+        assert sender.closed

@@ -384,11 +384,11 @@ class SenderLink(_Link):
 
     def close(self, pn_condition=None):
         self._pending_sends.clear()
+        info = {"condition": pn_condition} if pn_condition else None
         while self._send_requests:
             key, send_req = self._send_requests.popitem()
             # TODO(kgiusti) fix - must be async!
-            send_req.destroy(self, SenderLink.ABORTED,
-                             {"condition": pn_condition})
+            send_req.destroy(SenderLink.ABORTED, info)
         super(SenderLink, self).close(pn_condition)
 
     def reject(self, pn_condition=None):
