@@ -172,7 +172,8 @@ class MySenderLink(dingus.SenderEventHandler):
     def sender_active(self, sender_link):
         LOG.debug("Sender: Active")
         # TODO(kgiusti) - need credit granted callback:
-        self.credit_granted(sender_link)
+        if sender_link.credit > 0:
+            self.send_message()
 
     def sender_remote_closed(self, sender_link, error):
         LOG.debug("Sender: Remote closed")
@@ -186,7 +187,8 @@ class MySenderLink(dingus.SenderEventHandler):
     def credit_granted(self, sender_link):
         LOG.debug("Sender: credit granted")
         # Send a single message:
-        self.send_message()
+        if sender_link.credit > 0:
+            self.send_message()
 
     # 'message sent' callback:
     def __call__(self, sender, handle, status, error=None):
@@ -234,6 +236,8 @@ class MyReceiverLink(dingus.ReceiverEventHandler):
         self.receiver_link.message_accepted(handle)
         print("Message received on Receiver link %s, message=%s"
               % (self.receiver_link.name, str(message)))
+        if receiver_link.capacity < 1:
+            receiver_link.add_capacity(1)
 
 
 def main(argv=None):
@@ -291,7 +295,7 @@ def main(argv=None):
                                                    [], timeout)
         LOG.debug("select() returned")
 
-        worked = []
+        worked = set()
         for r in readable:
             if r is my_socket:
                 # new inbound connection request received,
@@ -317,7 +321,7 @@ def main(argv=None):
 
             else:
                 r.process_input()
-                worked.append(r)
+                worked.add(r)
 
         for t in timers:
             now = time.time()
@@ -326,12 +330,12 @@ def main(argv=None):
             t.process(now)
             sc = t.user_context
             assert isinstance(sc, SocketConnection)
-            worked.append(sc)
+            worked.add(sc)
 
         for w in writable:
             assert isinstance(w, SocketConnection)
             w.send_output()
-            worked.append(w)
+            worked.add(w)
 
         # nuke any completed connections:
         closed = False

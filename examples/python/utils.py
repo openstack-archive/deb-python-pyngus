@@ -75,6 +75,9 @@ def server_socket(host, port, backlog=10):
 
 def process_connection(connection, my_socket):
     """Handle I/O and Timers on a single Connection."""
+    if connection.closed:
+        return False
+
     work = False
     readfd = []
     writefd = []
