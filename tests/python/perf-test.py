@@ -17,7 +17,7 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-""" Minimal message receive example code."""
+"""A benchmarking utility."""
 
 import optparse
 import sys
@@ -121,14 +121,15 @@ class PerfSender(dingus.SenderEventHandler):
 
     def send_complete(self, link, handle, result, info):
         self.acked += 1
-        if self.sent < self.msg_count:
-            self._send_msgs()
-        elif self.acked == self.msg_count:
+        if self.acked == self.msg_count:
             # test done, shutdown
             self.link.close()
             self.perf_conn.senders.discard(self)
             if len(self.perf_conn.senders) == 0:
                 self.link.connection.close()
+        elif self.acked == self.sent:
+            # send next batch
+            self._send_msgs()
 
 
 class PerfReceiver(dingus.ReceiverEventHandler):
@@ -187,10 +188,10 @@ def main(argv=None):
                       default=100,
                       help="# of link pairs.")
     parser.add_option("--send-batch", dest="send_batch", type="int",
-                      default=1,
+                      default=10,
                       help="# of msgs sender queues at once.")
     parser.add_option("--credit-batch", dest="credit_batch", type="int",
-                      default=0,
+                      default=5,
                       help="Credit window issued by receiver.")
     parser.add_option("--ca",
                       help="Certificate Authority PEM file")

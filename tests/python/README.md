@@ -40,8 +40,8 @@ To run, invoke it using the *time* command.  Example:
 
 ### Lenovo T530 ###
 
-    master @ 3c0f144eceed8b8b0a16d9947ef66cbfef82f95e  (Proton 0.7 RC3)
-    real	2m15.789s
-    user	2m15.357s
-    sys 	0m0.039s
+    master @ 7cc6f77b781916ee679d36e8fd1d1bcf77760353 (Proton 0.7 RC4)
+    real	2m1.102s
+    user	2m0.814s
+    sys 	0m0.026s
 
