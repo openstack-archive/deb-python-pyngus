@@ -129,8 +129,7 @@ class Connection(Endpoint):
         SSL (eg, plain TCP). Used by a server that will accept clients
         requesting either trusted or untrusted connections.
         """
-        super(Connection, self).__init__()
-        self._name = name
+        super(Connection, self).__init__(name)
         self._container = container
         self._handler = event_handler
 
@@ -164,6 +163,7 @@ class Connection(Endpoint):
         self._user_context = None
         self._active = False
         self._in_process = False
+        self._remote_session_id = 0
 
         self._pn_ssl = self._configure_ssl(properties)
 
@@ -319,7 +319,9 @@ class Connection(Endpoint):
                     # create a new session if requested by remote:
                     if (pn_session.state == self._REMOTE_REQ):
                         LOG.debug("Opening remotely initiated session")
-                        session = _SessionProxy(self, pn_session)
+                        name = "session-%d" % self._remote_session_id
+                        self._remote_session_id += 1
+                        session = _SessionProxy(name, self, pn_session)
                     pn_session.context.process_remote_state()
 
                 elif pn_event.type == proton.Event.SESSION_LOCAL_STATE:
@@ -473,7 +475,7 @@ class Connection(Endpoint):
         if ident in self._sender_links:
             raise KeyError("Sender %s already exists!" % ident)
 
-        session = _SessionProxy(self)
+        session = _SessionProxy(ident, self)
         session.open()
         sl = session.new_sender(ident)
         sl.configure(target_address, source_address, event_handler, properties)
@@ -509,7 +511,7 @@ class Connection(Endpoint):
         if ident in self._receiver_links:
             raise KeyError("Receiver %s already exists!" % ident)
 
-        session = _SessionProxy(self)
+        session = _SessionProxy(ident, self)
         session.open()
         rl = session.new_receiver(ident)
         rl.configure(target_address, source_address, event_handler, properties)

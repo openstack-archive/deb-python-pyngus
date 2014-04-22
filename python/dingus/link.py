@@ -35,9 +35,8 @@ class _Link(Endpoint):
     """A generic Link base class."""
 
     def __init__(self, connection, pn_link):
-        super(_Link, self).__init__()
+        super(_Link, self).__init__(pn_link.name)
         self._connection = connection
-        self._name = pn_link.name
         self._handler = None
         self._properties = None
         self._user_context = None
@@ -366,24 +365,23 @@ class SenderLink(_Link):
     # endpoint state machine actions:
 
     def _ep_active(self):
-        LOG.debug("Link is up")
+        LOG.debug("SenderLink is up")
         if self._handler:
             self._handler.sender_active(self)
 
     def _ep_need_close(self):
-        # TODO(kgiusti) error reporting
-        LOG.debug("Link remote closed")
+        LOG.debug("SenderLink remote closed")
         if self._handler:
             cond = self._pn_link.remote_condition
             self._handler.sender_remote_closed(self, cond)
 
     def _ep_closed(self):
-        LOG.debug("Link close completed")
+        LOG.debug("SenderLink close completed")
         if self._handler:
             self._handler.sender_closed(self)
 
     def _ep_requested(self):
-        LOG.debug("Remote has initiated a link")
+        LOG.debug("Remote has requested a SenderLink")
         handler = self._connection._handler
         if handler:
             pn_link = self._pn_link
@@ -508,18 +506,18 @@ class ReceiverLink(_Link):
     # endpoint state machine actions:
 
     def _ep_active(self):
-        LOG.debug("Link is up")
+        LOG.debug("ReceiverLink is up")
         if self._handler:
             self._handler.receiver_active(self)
 
     def _ep_need_close(self):
-        LOG.debug("Link remote closed")
+        LOG.debug("ReceiverLink remote closed")
         if self._handler:
             cond = self._pn_link.remote_condition
             self._handler.receiver_remote_closed(self, cond)
 
     def _ep_closed(self):
-        LOG.debug("Link close completed")
+        LOG.debug("ReceiverLink close completed")
         if self._handler:
             self._handler.receiver_closed(self)
 
@@ -551,8 +549,8 @@ class ReceiverLink(_Link):
 
 class _SessionProxy(Endpoint):
     """Corresponds to a Proton Session object."""
-    def __init__(self, connection, pn_session=None):
-        super(_SessionProxy, self).__init__()
+    def __init__(self, name, connection, pn_session=None):
+        super(_SessionProxy, self).__init__(name)
         self._locally_initiated = not pn_session
         self._connection = connection
         if not pn_session:
@@ -605,10 +603,22 @@ class _SessionProxy(Endpoint):
 
     def _ep_requested(self):
         """Peer has requested a new session."""
+        LOG.debug("Session %s requested - opening...",
+                  self._name)
         self.open()
+
+    def _ep_active(self):
+        """Both ends of the Endpoint have become active."""
+        LOG.debug("Session %s active", self._name)
 
     def _ep_need_close(self):
         """Peer has closed its end of the session."""
+        LOG.debug("Session %s close requested - closing...",
+                  self._name)
         links = self._links.copy()  # may modify _links
         for link in links:
             link._session_closed()
+
+    def _ep_closed(self):
+        """Both ends of the endpoint have closed."""
+        LOG.debug("Session %s closed", self._name)

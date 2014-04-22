@@ -35,13 +35,21 @@ class Endpoint(object):
     STATE_CLOSED = 7  # terminal state
     STATE_REJECTED = 8  # terminal state, automatic cleanup
 
+    state_names = ["STATE_UNINIT", "STATE_PENDING", "STATE_REQUESTED",
+                   "STATE_CANCELLED", "STATE_ACTIVE", "STATE_NEED_CLOSE",
+                   "STATE_CLOSING", "STATE_CLOSED", "STATE_REJECTED"]
+
     # Events - state has transitioned to:
     LOCAL_ACTIVE = 1
     LOCAL_CLOSED = 2
     REMOTE_ACTIVE = 3
     REMOTE_CLOSED = 4
 
-    def __init__(self):
+    event_names = ["UNKNOWN", "LOCAL_ACTIVE", "LOCAL_CLOSED",
+                   "REMOTE_ACTIVE", "REMOTE_CLOSED"]
+
+    def __init__(self, name):
+        self._name = name
         self._state = Endpoint.STATE_UNINIT
         self._fsm = [  # {event: (next-state, action), ...}
             # STATE_UNINIT:
@@ -102,12 +110,15 @@ class Endpoint(object):
         raise NotImplementedError("Must Override")
 
     def _dispatch_event(self, event):
-        LOG.debug("Endpoint event %d", event)
+        LOG.debug("Endpoint %s event: %s",
+                  self._name, Endpoint.event_names[event])
         fsm = self._fsm[self._state]
         entry = fsm.get(event)
         if entry:
-            LOG.debug("Old State: %d New State: %d",
-                      self._state, entry[0])
+            LOG.debug("Endpoint %s Old State: %s New State: %s",
+                      self._name,
+                      Endpoint.state_names[self._state],
+                      Endpoint.state_names[entry[0]])
             self._state = entry[0]
             if entry[1]:
                 entry[1]()
