@@ -34,12 +34,11 @@ class ContainerEventHandler(object):
 
 class Container(object):
     """An implementation of an AMQP 1.0 container."""
-    def __init__(self, name, event_handler=None, properties=None):
+    def __init__(self, name, properties=None):
         self._name = name
         self._connections = {}
         self._timer_heap = []  # (next_tick, connection)
         self._need_processing = set()
-        self._handler = event_handler
         self._properties = properties
 
     def destroy(self):

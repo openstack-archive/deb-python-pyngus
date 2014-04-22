@@ -196,14 +196,12 @@ locking for container management of connections!!
 
 ### Container Methods ###
 
-`Container(name, containerEventHandler, properties)`
+`Container(name, properties)`
 
 Construct a container.  Parameters:
 
 * __name__ - string, an identifier for the new container, __MUST__ be
 unique across the entire messaging domain.
-* __ContainerEventHandler__ - object, provides callback handlers for
-  container events (see below)
 * __properties__ - map, contents TBD
 
 
@@ -283,13 +281,6 @@ The timer list is sorted with the Connection next expiring at index 0.
 `Container.get_connection(name)`
 
 Returns the Connection instance identified by *name*.
-
-### Container Events ###
-
-The ContainerEventHandler passed on container construction has the
-following callback methods that your application can register:
-
-**TBD** - At this point, I've got none defined.
 
 ## The Connection Class ##
 
