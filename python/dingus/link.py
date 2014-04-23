@@ -585,7 +585,7 @@ class _SessionProxy(Endpoint):
         return rl
 
     def link_destroyed(self, link):
-        """Link has been destroyed"""
+        """Link has been destroyed."""
         self._links.discard(link)
         if not self._links:
             # no more links

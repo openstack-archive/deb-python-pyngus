@@ -15,7 +15,6 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 __all__ = [
-    "ContainerEventHandler",
     "Container"
 ]
 
@@ -25,11 +24,6 @@ import logging
 from dingus.connection import Connection
 
 LOG = logging.getLogger(__name__)
-
-
-class ContainerEventHandler(object):
-    # TODO(kgiusti) - ContainerEventHandler
-    pass
 
 
 class Container(object):
@@ -91,6 +85,6 @@ class Container(object):
     def get_connection(self, name):
         return self._connections.get(name, None)
 
-    def _remove_connection(self, name):
+    def remove_connection(self, name):
         if name in self._connections:
             del self._connections[name]

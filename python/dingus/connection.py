@@ -24,10 +24,10 @@ import heapq
 import logging
 import proton
 import time
-from warnings import warn
+import warnings
 
-from dingus.link import _SessionProxy
 from dingus.endpoint import Endpoint
+from dingus.link import _SessionProxy
 
 LOG = logging.getLogger(__name__)
 
@@ -212,7 +212,8 @@ class Connection(Endpoint):
 
     @property
     def sasl(self):
-        warn(DeprecationWarning("sasl deprecated, use pn_sasl instead"))
+        text = "sasl deprecated, use pn_sasl instead"
+        warnings.warn(DeprecationWarning(text))
         return self.pn_sasl
 
     def pn_ssl(self):
@@ -254,7 +255,7 @@ class Connection(Endpoint):
     def destroy(self):
         self._sender_links.clear()
         self._receiver_links.clear()
-        self._container._remove_connection(self._name)
+        self._container.remove_connection(self._name)
         self._container = None
         self._pn_collector = None
         self._pn_connection = None
@@ -377,7 +378,8 @@ class Connection(Endpoint):
 
     @property
     def next_tick(self):
-        warn(DeprecationWarning("next_tick deprecated, use deadline instead"))
+        text = "next_tick deprecated, use deadline instead"
+        warnings.warn(DeprecationWarning(text))
         return self.deadline
 
     @property

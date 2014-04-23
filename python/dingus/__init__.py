@@ -16,7 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-from dingus.container import Container, ContainerEventHandler
+from dingus.container import Container
 from dingus.connection import Connection, ConnectionEventHandler
 from dingus.link import ReceiverLink, ReceiverEventHandler
 from dingus.link import SenderLink, SenderEventHandler
