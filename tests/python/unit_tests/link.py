@@ -115,6 +115,53 @@ class APITest(common.Test):
         sender.destroy()
         receiver.destroy()
 
+    def test_send_abort(self):
+        sl_handler = common.SenderCallback()
+        cb = common.DeliveryCallback()
+        sender = self.conn1.create_sender("saddr", "taddr",
+                                          sl_handler)
+        msg = Message()
+        msg.body = "Hi"
+        sender.send(msg, cb, None)
+        sender.open()
+        sender.close()
+        self.process_connections()
+        assert self.conn2_handler.receiver_requested_ct == 1
+        args = self.conn2_handler.receiver_requested_args[0]
+        rl_handler = common.ReceiverCallback()
+        receiver1 = self.conn2.accept_receiver(args.link_handle,
+                                               event_handler=rl_handler)
+        receiver1.open()
+        self.process_connections()
+        assert rl_handler.remote_closed_ct
+        receiver1.close()
+        self.process_connections()
+        assert sl_handler.closed_ct
+        assert sl_handler.active_ct == 0
+        assert cb.count
+        assert cb.status == dingus.SenderLink.ABORTED
+
+    def test_receiver_abort(self):
+        rl_handler = common.ReceiverCallback()
+        receiver = self.conn1.create_receiver("taddr", "saddr",
+                                              rl_handler)
+        receiver.add_capacity(1)
+        receiver.open()
+        receiver.close()
+        self.process_connections()
+        assert self.conn2_handler.sender_requested_ct == 1
+        args = self.conn2_handler.sender_requested_args[0]
+        sl_handler = common.SenderCallback()
+        sender = self.conn2.accept_sender(args.link_handle,
+                                          event_handler=sl_handler)
+        sender.open()
+        self.process_connections()
+        assert sl_handler.remote_closed_ct
+        sender.close()
+        self.process_connections()
+        assert rl_handler.closed_ct
+        assert rl_handler.active_ct == 0
+
     def test_sender_setup_sync(self):
         sender, receiver = self._setup_sender_sync()
         sl_handler = sender.user_context
@@ -465,11 +512,15 @@ class APITest(common.Test):
                                      {"smoked eel": "yummy"})
                     link.close(cond)
                 else:
-                    # the unsent message is aborted
+                    # the unsent message is aborted prior
+                    # to invoking closed callback:
                     assert status == dingus.SenderLink.ABORTED
+                    sl_handler = link.user_context
+                    assert sl_handler.closed_ct == 0
 
         sender, receiver = self._setup_sender_sync()
         rl_handler = receiver.user_context
+        sl_handler = sender.user_context
         receiver.add_capacity(1)
         msg = Message()
         msg.body = "Hi"
@@ -484,12 +535,17 @@ class APITest(common.Test):
         receiver.message_accepted(handle)
         self.process_connections()
         assert not sender.active
+        assert not sender.closed
+        # pending messages are aborted when close completes:
+        assert cb.count == 1
+        assert sl_handler.closed_ct == 0
+        receiver.close()
+        self.process_connections()
+        assert sender.closed
+        assert sl_handler.closed_ct
         assert cb.count == 2
         # last callback should be abort:
         cond = cb.info.get('condition')
         assert cond
         assert cond.name == "indigestion"
         assert cb.status == dingus.SenderLink.ABORTED
-        receiver.close()
-        self.process_connections()
-        assert sender.closed

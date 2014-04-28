@@ -161,7 +161,6 @@ class Connection(Endpoint):
         self._error = None
         self._next_deadline = 0
         self._user_context = None
-        self._active = False
         self._in_process = False
         self._remote_session_id = 0
 
@@ -370,10 +369,8 @@ class Connection(Endpoint):
 
             # invoked closed callback after endpoint has fully closed and all
             # pending I/O has completed:
-            if (self._active and
-                    self._endpoint_state == self._CLOSED and
+            if (self._endpoint_state == self._CLOSED and
                     self._read_done and self._write_done):
-                self._active = False
                 if self._handler:
                     self._handler.connection_closed(self)
 
@@ -649,10 +646,8 @@ class Connection(Endpoint):
     def _ep_active(self):
         """Both ends of the Endpoint have become active."""
         LOG.debug("Connection is up")
-        if not self._active:
-            self._active = True
-            if self._handler:
-                self._handler.connection_active(self)
+        if self._handler:
+            self._handler.connection_active(self)
 
     def _ep_need_close(self):
         """The remote has closed its end of the endpoint."""

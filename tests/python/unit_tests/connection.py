@@ -168,6 +168,7 @@ class APITest(common.Test):
         assert c2_events.remote_closed_ct
         c2.close()
         common.process_connections(c1, c2)
+        assert c1_events.closed_ct
         assert c2_events.closed_ct
 
     def test_user_context(self):

@@ -290,15 +290,6 @@ class SenderLink(_Link):
     def credit(self):
         return self._pn_link.credit
 
-    def close(self, pn_condition=None):
-        self._pending_sends.clear()
-        info = {"condition": pn_condition} if pn_condition else None
-        while self._send_requests:
-            key, send_req = self._send_requests.popitem()
-            # TODO(kgiusti) fix - must be async!
-            send_req.destroy(SenderLink.ABORTED, info)
-        super(SenderLink, self).close(pn_condition)
-
     def reject(self, pn_condition=None):
         """See Link Reject, AMQP1.0 spec."""
         self._pn_link.source.type = proton.Terminus.UNSPECIFIED
@@ -405,6 +396,13 @@ class SenderLink(_Link):
 
     def _ep_closed(self):
         LOG.debug("SenderLink close completed")
+        # abort any pending sends
+        self._pending_sends.clear()
+        pn_condition = self._pn_link.condition
+        info = {"condition": pn_condition} if pn_condition else None
+        while self._send_requests:
+            key, send_req = self._send_requests.popitem()
+            send_req.destroy(SenderLink.ABORTED, info)
         if self._handler and not self._rejected:
             self._handler.sender_closed(self)
 
