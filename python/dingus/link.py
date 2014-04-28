@@ -40,6 +40,8 @@ class _Link(Endpoint):
         self._handler = None
         self._properties = None
         self._user_context = None
+        self._rejected = False  # requested link was refused
+        self._failed = False  # protocol error occurred
         # TODO(kgiusti): raise jira to add 'context' attr to api
         self._pn_link = pn_link
         pn_link.context = self
@@ -126,16 +128,19 @@ class _Link(Endpoint):
     @property
     def active(self):
         state = self._pn_link.state
-        return state == (proton.Endpoint.LOCAL_ACTIVE
-                         | proton.Endpoint.REMOTE_ACTIVE)
+        return (not self._failed and
+                state == (proton.Endpoint.LOCAL_ACTIVE
+                          | proton.Endpoint.REMOTE_ACTIVE))
 
     @property
     def closed(self):
         state = self._pn_link.state
-        return state == (proton.Endpoint.LOCAL_CLOSED
-                         | proton.Endpoint.REMOTE_CLOSED)
+        return (self._failed or
+                state == (proton.Endpoint.LOCAL_CLOSED
+                          | proton.Endpoint.REMOTE_CLOSED))
 
     def reject(self, pn_condition):
+        self._rejected = True  # prevent 'active' callback!
         self._pn_link.open()
         if pn_condition:
             self._pn_link.condition = pn_condition
@@ -152,20 +157,35 @@ class _Link(Endpoint):
             self._pn_link = None
             session.link_destroyed(self)  # destroy session _after_ link
 
-    @property
-    def _endpoint_state(self):
-        return self._pn_link.state
-
     def _process_delivery(self, pn_delivery):
         raise NotImplementedError("Must Override")
 
     def _process_credit(self):
         raise NotImplementedError("Must Override")
 
+    def _link_failed(self, error):
+        raise NotImplementedError("Must Override")
+
     def _session_closed(self):
         """Remote has closed the session used by this link."""
-        # simulate a remote-closed event:
-        self._dispatch_event(Endpoint.REMOTE_CLOSED)
+        # if link not already closed:
+        if self._endpoint_state & proton.Endpoint.REMOTE_ACTIVE:
+            # simulate close received
+            self.process_remote_state()
+        elif self._endpoint_state & proton.Endpoint.REMOTE_UNINIT:
+            # locally created link, will never come up
+            self._failed = True
+            self._link_failed("Parent session closed.")
+
+    # endpoint methods:
+    @property
+    def _endpoint_state(self):
+        return self._pn_link.state
+
+    def _ep_error(self):
+        super(_Link, self)._ep_error()
+        self._failed = True
+        self._link_failed("Endpoint protocol error.")
 
 
 class SenderEventHandler(object):
@@ -180,6 +200,10 @@ class SenderEventHandler(object):
 
     def credit_granted(self, sender_link):
         LOG.debug("credit_granted (ignored)")
+
+    def sender_failed(self, sender_link, error):
+        """Protocol error occurred."""
+        LOG.debug("sender_failed (ignored)")
 
 
 class SenderLink(_Link):
@@ -336,7 +360,7 @@ class SenderLink(_Link):
 
         # Alert if credit has become available
         new_credit = self._pn_link.credit
-        if self._handler:
+        if self._handler and not self._rejected:
             if self._last_credit <= 0 and new_credit > 0:
                 LOG.debug("Credit is available, link=%s", self.name)
                 self._handler.credit_granted(self)
@@ -362,22 +386,26 @@ class SenderLink(_Link):
             pass
         send_req.destroy(SenderLink.TIMED_OUT, None)
 
+    def _link_failed(self, error):
+        if self._handler and not self._rejected:
+            self._handler.sender_failed(self, error)
+
     # endpoint state machine actions:
 
     def _ep_active(self):
         LOG.debug("SenderLink is up")
-        if self._handler:
+        if self._handler and not self._rejected:
             self._handler.sender_active(self)
 
     def _ep_need_close(self):
         LOG.debug("SenderLink remote closed")
-        if self._handler:
+        if self._handler and not self._rejected:
             cond = self._pn_link.remote_condition
             self._handler.sender_remote_closed(self, cond)
 
     def _ep_closed(self):
         LOG.debug("SenderLink close completed")
-        if self._handler:
+        if self._handler and not self._rejected:
             self._handler.sender_closed(self)
 
     def _ep_requested(self):
@@ -416,6 +444,10 @@ class ReceiverEventHandler(object):
 
     def receiver_closed(self, receiver_link):
         LOG.debug("receiver_closed (ignored)")
+
+    def receiver_failed(self, receiver_link, error):
+        """Protocol error occurred."""
+        LOG.debug("receiver_failed (ignored)")
 
     def message_received(self, receiver_link, message, handle):
         LOG.debug("message_received (ignored)")
@@ -503,22 +535,26 @@ class ReceiverLink(_Link):
         # Only used by SenderLink
         pass
 
+    def _link_failed(self, error):
+        if self._handler and not self._rejected:
+            self._handler.receiver_failed(self, error)
+
     # endpoint state machine actions:
 
     def _ep_active(self):
         LOG.debug("ReceiverLink is up")
-        if self._handler:
+        if self._handler and not self._rejected:
             self._handler.receiver_active(self)
 
     def _ep_need_close(self):
         LOG.debug("ReceiverLink remote closed")
-        if self._handler:
+        if self._handler and not self._rejected:
             cond = self._pn_link.remote_condition
             self._handler.receiver_remote_closed(self, cond)
 
     def _ep_closed(self):
         LOG.debug("ReceiverLink close completed")
-        if self._handler:
+        if self._handler and not self._rejected:
             self._handler.receiver_closed(self)
 
     def _ep_requested(self):

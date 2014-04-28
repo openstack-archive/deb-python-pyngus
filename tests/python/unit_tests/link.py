@@ -457,11 +457,16 @@ class APITest(common.Test):
             def __call__(self, link, handle, status, info):
                 super(SendDoneCallback, self).__call__(link, handle,
                                                        status, info)
-                # verify that we can safely close ourself, even if there is a
-                # send that has not completed:
-                cond = Condition("indigestion", "old sushi",
-                                 {"smoked eel": "yummy"})
-                link.close(cond)
+                if self.count == 1:
+                    # verify that we can safely close ourself, even if there is
+                    # a send that has not completed:
+                    assert status == dingus.SenderLink.ACCEPTED
+                    cond = Condition("indigestion", "old sushi",
+                                     {"smoked eel": "yummy"})
+                    link.close(cond)
+                else:
+                    # the unsent message is aborted
+                    assert status == dingus.SenderLink.ABORTED
 
         sender, receiver = self._setup_sender_sync()
         rl_handler = receiver.user_context

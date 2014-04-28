@@ -21,7 +21,9 @@ import common
 import os
 import time
 
-from proton import SSLUnavailable, Condition
+from proton import Condition
+from proton import Message
+from proton import SSLUnavailable
 import dingus
 
 
@@ -62,6 +64,111 @@ class APITest(common.Test):
         common.process_connections(c1, c2)
         assert c1.closed and not c1.active
         assert c2.closed and not c2.active
+
+    def test_pipeline(self):
+        """Issue several operations before processing I/O."""
+        c1_events = common.ConnCallback()
+        c2_events = common.ConnCallback()
+        c1 = self.container1.create_connection("c1", c1_events)
+        c2 = self.container2.create_connection("c2", c2_events)
+
+        # create sender & receiver, send msg,
+        # and grant credit prior to opening c2:
+        c1.open()
+        s1_handler = common.SenderCallback()
+        sender = c1.create_sender("my-source", "req-target",
+                                  event_handler=s1_handler)
+        sender.open()
+        msg = Message()
+        msg.body = "Hi"
+        sender.send(msg)
+        r1_handler = common.ReceiverCallback()
+        receiver = c1.create_receiver("my-target", "req-source",
+                                      event_handler=r1_handler)
+        receiver.add_capacity(1)
+        receiver.open()
+        common.process_connections(c1, c2)
+        assert c2_events.sender_requested_ct == 0
+        assert c2_events.receiver_requested_ct == 0
+        c2.open()
+        common.process_connections(c1, c2)
+
+        # accept remote links, grant credit and
+        # send msg before processing I/O:
+        assert c1_events.active_ct
+        assert c2_events.active_ct
+        assert c2_events.sender_requested_ct == 1
+        assert c2_events.receiver_requested_ct == 1
+        req = c2_events.receiver_requested_args[0]
+        r2_handler = common.ReceiverCallback()
+        c2_receiver = c2.accept_receiver(req.link_handle,
+                                         event_handler=r2_handler)
+        c2_receiver.add_capacity(1)
+        c2_receiver.open()
+        req = c2_events.sender_requested_args[0]
+        s2_handler = common.SenderCallback()
+        c2_sender = c2.accept_sender(req.link_handle,
+                                     event_handler=s2_handler)
+        s_msg = Message()
+        s_msg.body = "There"
+        c2_sender.send(s_msg)
+        c2_sender.open()
+        common.process_connections(c1, c2)
+        assert s1_handler.active_ct
+        assert r1_handler.active_ct
+        assert r1_handler.message_received_ct
+        receiver.message_accepted(r1_handler.received_messages[0][1])
+        receiver.close()
+        assert s2_handler.active_ct
+        assert r2_handler.active_ct
+        assert r2_handler.message_received_ct
+        c2_receiver.message_accepted(r2_handler.received_messages[0][1])
+        c2_receiver.close()
+        common.process_connections(c1, c2)
+        assert s1_handler.remote_closed_ct
+        assert s2_handler.remote_closed_ct
+        sender.close()
+        c2_sender.close()
+        common.process_connections(c1, c2)
+        assert r1_handler.closed_ct
+        assert s2_handler.closed_ct
+        c1.close()
+        c2.close()
+        common.process_connections(c1, c2)
+        assert c1_events.closed_ct
+        assert c1.closed
+        assert c2_events.closed_ct
+        assert c2.closed
+
+    def test_abort(self):
+        """Issue several operations, then close before processing I/O."""
+        c1_events = common.ConnCallback()
+        c2_events = common.ConnCallback()
+        c1 = self.container1.create_connection("c1", c1_events)
+        c2 = self.container2.create_connection("c2", c2_events)
+
+        # create sender & receiver, send msg,
+        # and grant credit prior to opening c2:
+        c1.open()
+        s1_handler = common.SenderCallback()
+        sender = c1.create_sender("my-source", "req-target",
+                                  event_handler=s1_handler)
+        sender.open()
+        msg = Message()
+        msg.body = "Hi"
+        sender.send(msg)
+        r1_handler = common.ReceiverCallback()
+        receiver = c1.create_receiver("my-target", "req-source",
+                                      event_handler=r1_handler)
+        receiver.add_capacity(1)
+        receiver.open()
+        c1.close()
+        c2.open()
+        common.process_connections(c1, c2)
+        assert c2_events.remote_closed_ct
+        c2.close()
+        common.process_connections(c1, c2)
+        assert c2_events.closed_ct
 
     def test_user_context(self):
         c1 = self.container1.create_connection("c1")

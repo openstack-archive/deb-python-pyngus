@@ -282,6 +282,10 @@ class Connection(Endpoint):
                 self._next_deadline = now
                 return now
 
+            # do nothing until the connection has been opened
+            if self._pn_connection.state & proton.Endpoint.LOCAL_UNINIT:
+                return 0
+
             # wait until SASL has authenticated
             # TODO(kgiusti) Server-side SASL
             if self._pn_sasl:
@@ -318,7 +322,8 @@ class Connection(Endpoint):
                 elif pn_event.type == proton.Event.SESSION_REMOTE_STATE:
                     pn_session = pn_event.session
                     # create a new session if requested by remote:
-                    if (pn_session.state == self._REMOTE_REQ):
+                    if (not hasattr(pn_session, 'context')
+                            or pn_session.context is None):
                         LOG.debug("Opening remotely initiated session")
                         name = "session-%d" % self._remote_session_id
                         self._remote_session_id += 1
@@ -332,7 +337,8 @@ class Connection(Endpoint):
                 elif pn_event.type == proton.Event.LINK_REMOTE_STATE:
                     pn_link = pn_event.link
                     # create a new link if requested by remote:
-                    if (pn_link.state == self._REMOTE_REQ):
+                    if (not hasattr(pn_link, 'context')
+                            or pn_link.context is None):
                         session = pn_link.session.context
                         if (pn_link.is_sender and
                                 pn_link.name not in self._sender_links):
@@ -477,7 +483,7 @@ class Connection(Endpoint):
         if ident in self._sender_links:
             raise KeyError("Sender %s already exists!" % ident)
 
-        session = _SessionProxy(ident, self)
+        session = _SessionProxy("session-%s" % ident, self)
         session.open()
         sl = session.new_sender(ident)
         sl.configure(target_address, source_address, event_handler, properties)
@@ -498,12 +504,12 @@ class Connection(Endpoint):
                        event_handler, properties)
         return link
 
-    def reject_sender(self, link_handle, reason):
+    def reject_sender(self, link_handle, pn_condition=None):
         """Rejects the SenderLink, and destroys the handle."""
         link = self._sender_links.get(link_handle)
         if not link:
             raise Exception("Invalid link_handle: %s" % link_handle)
-        link.reject(reason)
+        link.reject(pn_condition)
         link.destroy()
 
     def create_receiver(self, target_address, source_address=None,
@@ -513,7 +519,7 @@ class Connection(Endpoint):
         if ident in self._receiver_links:
             raise KeyError("Receiver %s already exists!" % ident)
 
-        session = _SessionProxy(ident, self)
+        session = _SessionProxy("session-%s" % ident, self)
         session.open()
         rl = session.new_receiver(ident)
         rl.configure(target_address, source_address, event_handler, properties)
@@ -654,3 +660,8 @@ class Connection(Endpoint):
         if self._handler:
             cond = self._pn_connection.remote_condition
             self._handler.connection_remote_closed(self, cond)
+
+    def _ep_error(self):
+        """The endpoint state machine failed due to protocol error."""
+        super(Connection, self)._ep_error()
+        self._connection_failed("Protocol error occurred.")

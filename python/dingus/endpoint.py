@@ -16,7 +16,6 @@
 #    under the License.
 
 import logging
-import proton
 
 LOG = logging.getLogger(__name__)
 
@@ -26,83 +25,73 @@ class Endpoint(object):
 
     # Endpoint States:  (note: keep in sync with _fsm below!)
     STATE_UNINIT = 0  # initial state
-    STATE_PENDING = 1  # waiting for remote to open
-    STATE_REQUESTED = 2  # waiting for local to open
-    STATE_CANCELLED = 3  # remote closed endpoint before local open
-    STATE_ACTIVE = 4
-    STATE_NEED_CLOSE = 5  # remote initiated close
-    STATE_CLOSING = 6  # locally closed, pending remote
-    STATE_CLOSED = 7  # terminal state
-    STATE_REJECTED = 8  # terminal state, automatic cleanup
+    STATE_PENDING = 1  # local opened, waiting for remote to open
+    STATE_REQUESTED = 2  # remote opened, waiting for local to open
+    STATE_CANCELLED = 3  # local closed before remote opened
+    STATE_ABANDONED = 4  # remote closed before local opened
+    STATE_ACTIVE = 5
+    STATE_NEED_CLOSE = 6  # remote closed, waiting for local close
+    STATE_CLOSING = 7  # locally closed, pending remote close
+    STATE_CLOSED = 8  # terminal state
+    STATE_ERROR = 9  # unexpected state transition
 
     state_names = ["STATE_UNINIT", "STATE_PENDING", "STATE_REQUESTED",
-                   "STATE_CANCELLED", "STATE_ACTIVE", "STATE_NEED_CLOSE",
-                   "STATE_CLOSING", "STATE_CLOSED", "STATE_REJECTED"]
+                   "STATE_CANCELLED", "STATE_ABANDONED", "STATE_ACTIVE",
+                   "STATE_NEED_CLOSE", "STATE_CLOSING", "STATE_CLOSED",
+                   "STATE_ERROR"]
 
-    # Events - state has transitioned to:
-    LOCAL_ACTIVE = 1
-    LOCAL_CLOSED = 2
-    REMOTE_ACTIVE = 3
-    REMOTE_CLOSED = 4
+    # Events - (which endpoint state has changed)
+    # Endpoint state transitions are fixed to the following sequence:
+    # UNINIT --> ACTIVE --> CLOSED
+    LOCAL_UPDATE = 0
+    REMOTE_UPDATE = 1
 
-    event_names = ["UNKNOWN", "LOCAL_ACTIVE", "LOCAL_CLOSED",
-                   "REMOTE_ACTIVE", "REMOTE_CLOSED"]
+    event_names = ["LOCAL_UPDATE", "REMOTE_UPDATE"]
 
     def __init__(self, name):
         self._name = name
         self._state = Endpoint.STATE_UNINIT
-        self._fsm = [  # {event: (next-state, action), ...}
+        # Finite State Machine:
+        # Indexed by current state, each entry is a list indexed by the event
+        # received.  Contains a tuple of (next-state, action)
+        self._fsm = [
             # STATE_UNINIT:
-            {Endpoint.LOCAL_ACTIVE: (Endpoint.STATE_PENDING, None),
-             Endpoint.REMOTE_ACTIVE: (Endpoint.STATE_REQUESTED,
-                                      self._ep_requested),
-             Endpoint.REMOTE_CLOSED: (Endpoint.STATE_NEED_CLOSE,
-                                      self._ep_need_close)},
+            [(Endpoint.STATE_PENDING, None),  # L(open)
+             (Endpoint.STATE_REQUESTED, self._ep_requested)],  # R(open)
             # STATE_PENDING:
-            {Endpoint.LOCAL_CLOSED:  (Endpoint.STATE_CLOSING, None),
-             Endpoint.REMOTE_ACTIVE: (Endpoint.STATE_ACTIVE,
-                                      self._ep_active),
-             Endpoint.REMOTE_CLOSED: (Endpoint.STATE_NEED_CLOSE,
-                                      self._ep_need_close)},
+            [(Endpoint.STATE_CANCELLED, None),  # L(close)
+             (Endpoint.STATE_ACTIVE, self._ep_active)],  # R(open)
             # STATE_REQUESTED:
-            {Endpoint.LOCAL_CLOSED:  (Endpoint.STATE_REJECTED, None),
-             Endpoint.LOCAL_ACTIVE:  (Endpoint.STATE_ACTIVE,
-                                      self._ep_active),
-             Endpoint.REMOTE_CLOSED: (Endpoint.STATE_CANCELLED, None)},
+            [(Endpoint.STATE_ACTIVE, self._ep_active),  # L(open)
+             (Endpoint.STATE_ABANDONED, None)],  # R(close)
             # STATE_CANCELLED:
-            {Endpoint.LOCAL_CLOSED:  (Endpoint.STATE_REJECTED, None),
-             Endpoint.LOCAL_ACTIVE:  (Endpoint.STATE_NEED_CLOSE,
-                                      self._ep_need_close)},
+            [None,
+             (Endpoint.STATE_CLOSING, None)],  # R(open)
+            # STATE_ABANDONED:
+            [(Endpoint.STATE_NEED_CLOSE, self._ep_need_close),  # L(open)
+             (Endpoint.STATE_ERROR, self._ep_error)],
             # STATE_ACTIVE:
-            {Endpoint.LOCAL_CLOSED:  (Endpoint.STATE_CLOSING, None),
-             Endpoint.REMOTE_CLOSED: (Endpoint.STATE_NEED_CLOSE,
-                                      self._ep_need_close)},
+            [(Endpoint.STATE_CLOSING, None),  # L(close)
+             (Endpoint.STATE_NEED_CLOSE, self._ep_need_close)],  # R(close)
             # STATE_NEED_CLOSE:
-            {Endpoint.LOCAL_CLOSED:  (Endpoint.STATE_CLOSED,
-                                      self._ep_closed)},
+            [(Endpoint.STATE_CLOSED, self._ep_closed),  # L(close)
+             (Endpoint.STATE_ERROR, self._ep_error)],
             # STATE_CLOSING:
-            {Endpoint.REMOTE_CLOSED: (Endpoint.STATE_CLOSED,
-                                      self._ep_closed)},
+            [None,
+             (Endpoint.STATE_CLOSED, self._ep_closed)],  # R(close)
             # STATE_CLOSED:
-            {},
-            # STATE_REJECTED:
-            {}]
+            [None, None],
+            # STATE_ERROR:
+            [None, None],
+        ]
 
     def process_remote_state(self):
         """Call when remote endpoint state changes."""
-        state = self._endpoint_state
-        if (state & proton.Endpoint.REMOTE_ACTIVE):
-            self._dispatch_event(Endpoint.REMOTE_ACTIVE)
-        elif (state & proton.Endpoint.REMOTE_CLOSED):
-            self._dispatch_event(Endpoint.REMOTE_CLOSED)
+        self._dispatch_event(Endpoint.REMOTE_UPDATE)
 
     def process_local_state(self):
         """Call when local endpoint state changes."""
-        state = self._endpoint_state
-        if (state & proton.Endpoint.LOCAL_ACTIVE):
-            self._dispatch_event(Endpoint.LOCAL_ACTIVE)
-        elif (state & proton.Endpoint.LOCAL_CLOSED):
-            self._dispatch_event(Endpoint.LOCAL_CLOSED)
+        self._dispatch_event(Endpoint.LOCAL_UPDATE)
 
     @property
     def _endpoint_state(self):
@@ -113,7 +102,7 @@ class Endpoint(object):
         LOG.debug("Endpoint %s event: %s",
                   self._name, Endpoint.event_names[event])
         fsm = self._fsm[self._state]
-        entry = fsm.get(event)
+        entry = fsm[event]
         if entry:
             LOG.debug("Endpoint %s Old State: %s New State: %s",
                       self._name,
@@ -140,3 +129,8 @@ class Endpoint(object):
     def _ep_closed(self):
         """Both ends of the endpoint have closed."""
         LOG.debug("endpoint_closed - ignored")
+
+    def _ep_error(self):
+        """Unanticipated/illegal state change."""
+        LOG.error("Endpoint state error: %s, %s",
+                  self._name, Endpoint.state_names[self._state])
