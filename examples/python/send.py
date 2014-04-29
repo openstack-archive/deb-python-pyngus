@@ -20,6 +20,7 @@
 """ Minimal message send example code."""
 
 import optparse
+import logging
 import sys
 import uuid
 
@@ -29,6 +30,9 @@ from utils import connect_socket
 from utils import get_host_port
 from utils import process_connection
 from utils import SEND_STATUS
+
+LOG = logging.getLogger()
+LOG.addHandler(logging.StreamHandler())
 
 
 def main(argv=None):
@@ -41,6 +45,8 @@ def main(argv=None):
     parser.add_option("--idle", dest="idle_timeout", type="int",
                       default=0,
                       help="Idle timeout for connection (seconds).")
+    parser.add_option("--debug", dest="debug", action="store_true",
+                      help="enable debug logging")
     parser.add_option("--source", dest="source_addr", type="string",
                       help="Address for link source.")
     parser.add_option("--target", dest="target_addr", type="string",
@@ -53,6 +59,8 @@ def main(argv=None):
     opts, payload = parser.parse_args(args=argv)
     if not payload:
         payload = "Hi There!"
+    if opts.debug:
+        LOG.setLevel(logging.DEBUG)
 
     host, port = get_host_port(opts.server)
     my_socket = connect_socket(host, port)
@@ -97,11 +105,15 @@ def main(argv=None):
     sender.send(msg, cb)
 
     # Poll connection until SendCallback is invoked:
-    while not cb.done:
+    while not cb.done and not connection.closed:
         process_connection(connection, my_socket)
 
-    print("Send done, status=%s" % SEND_STATUS.get(cb.status,
-                                                   "???"))
+    if cb.done:
+        print("Send done, status=%s" % SEND_STATUS.get(cb.status,
+                                                       "???"))
+    else:
+        print("Send failed due to connection failure!")
+
     sender.close()
     connection.close()
 

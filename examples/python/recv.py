@@ -98,12 +98,15 @@ def main(argv=None):
     receiver.open()
 
     # Poll connection until something arrives
-    while not cb.done:
+    while not cb.done and not connection.closed:
         process_connection(connection, my_socket)
 
-    print("Receive done, message=%s" % str(cb.message))
+    if cb.done:
+        print("Receive done, message=%s" % str(cb.message))
+        receiver.message_accepted(cb.handle)
+    else:
+        print("Receive failed due to connection failure!")
 
-    receiver.message_accepted(cb.handle)
     receiver.close()
     connection.close()
 
