@@ -90,6 +90,8 @@ class Connection(Endpoint):
         idle-time-out: float, time in seconds before an idle link will be
         closed.
 
+        max-frame-size: int, maximum acceptable frame size in bytes.
+
         The following custom connection properties are supported:
 
         x-trace-protocol: boolean, if true, dump sent and received frames to
@@ -146,6 +148,9 @@ class Connection(Endpoint):
             secs = properties.get("idle-time-out")
             if secs:
                 self._pn_transport.idle_timeout = secs
+            max_frame = properties.get("max-frame-size")
+            if max_frame:
+                self._pn_transport.max_frame_size = max_frame
             if properties.get("x-trace-protocol"):
                 self._pn_transport.trace(proton.Transport.TRACE_FRM)
 

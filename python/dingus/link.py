@@ -512,8 +512,7 @@ class ReceiverLink(_Link):
 
     def _process_delivery(self, pn_delivery):
         """Check if the delivery can be processed."""
-        # TODO(kgiusti): multi-frame message transfer
-        if pn_delivery.readable:
+        if pn_delivery.readable and not pn_delivery.partial:
             LOG.debug("Receive delivery readable")
             data = self._pn_link.recv(pn_delivery.pending)
             msg = proton.Message()

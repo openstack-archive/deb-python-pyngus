@@ -18,6 +18,7 @@
 #
 import common
 # import logging
+import time
 
 from proton import Condition
 from proton import Message
@@ -27,22 +28,23 @@ import dingus
 
 class APITest(common.Test):
 
-    def setup(self, props=None):
+    def setup(self, conn1_props=None, conn2_props=None):
         # logging.getLogger("dingus").setLevel(logging.DEBUG)
         self.container1 = dingus.Container("test-container-1")
         self.conn1_handler = common.ConnCallback()
-        if props is None:
+        if conn1_props is None:
             # props = {"x-trace-protocol": True}
-            props = {"x-trace-protocol": False}
+            conn1_props = {"x-trace-protocol": False}
         self.conn1 = self.container1.create_connection("conn1",
                                                        self.conn1_handler,
-                                                       props)
+                                                       conn1_props)
         self.conn1.open()
 
         self.container2 = dingus.Container("test-container-2")
         self.conn2_handler = common.ConnCallback()
         self.conn2 = self.container2.create_connection("conn2",
-                                                       self.conn2_handler)
+                                                       self.conn2_handler,
+                                                       conn2_props)
         self.conn2.open()
 
     def process_connections(self, timestamp=None):
@@ -453,7 +455,7 @@ class APITest(common.Test):
     def test_send_deadline_idle(self):
         """Validate the connection's deadline processing."""
 
-        self.setup(props={"idle-time-out": 99})
+        self.setup(conn1_props={"idle-time-out": 99})
 
         sender1 = self.conn1.create_sender("src1", "tgt1")
         sender1.open()
@@ -549,3 +551,42 @@ class APITest(common.Test):
         assert cond
         assert cond.name == "indigestion"
         assert cb.status == dingus.SenderLink.ABORTED
+
+    def test_multi_frame_message(self):
+        """Verify multi-frame message send/receive."""
+
+        props = {"max-frame-size": 512}
+        self.setup(conn1_props=props, conn2_props=props)
+
+        sender1 = self.conn1.create_sender("src1", "tgt1")
+        sender1.open()
+        self.process_connections()
+        assert self.conn2_handler.receiver_requested_ct == 1
+        args = self.conn2_handler.receiver_requested_args[0]
+        rl_handler = common.ReceiverCallback()
+        receiver1 = self.conn2.accept_receiver(args.link_handle,
+                                               event_handler=rl_handler)
+        receiver1.add_capacity(1)
+        receiver1.open()
+        self.process_connections()
+
+        msg = Message()
+        msg.body = "Hi!" * 512  # > max frame size
+        cb = common.DeliveryCallback()
+        sender1.send(msg, cb)
+        # manually transfer output from conn1 to conn2 in small batches,
+        # forcing conn2 to process a partial delivery:
+        self.conn1.process(time.time())
+        while self.conn1.has_output:
+            count = min(self.conn1.has_output, 512)
+            part = self.conn1.output_data()[:count]
+            count = self.conn2.process_input(part)
+            self.conn2.process(time.time())
+            self.conn1.output_written(count)
+        assert rl_handler.message_received_ct == 1
+        rmsg, handle = rl_handler.received_messages[0]
+        assert rmsg.body == msg.body
+        receiver1.message_accepted(handle)
+        self.process_connections()
+        assert cb.count
+        assert cb.status == dingus.SenderLink.ACCEPTED
