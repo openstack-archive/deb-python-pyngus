@@ -20,7 +20,7 @@
 from distutils.core import setup
 
 setup(name="dingus",
-      version="0.1.0",
+      version="0.1.0-p0.7",
       author="kgiusti",
       author_email="kgiusti@apache.org",
       packages=["dingus"],
