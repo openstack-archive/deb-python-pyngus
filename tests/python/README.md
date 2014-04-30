@@ -32,16 +32,20 @@ To run, invoke it using the *time* command.  Example:
 
     $ time ./tests/python/perf-test.py
     
-    real	2m15.789s
-    user	2m15.357s
-    sys 	0m0.039s
+    real        2m15.789s
+    user        2m15.357s
+    sys         0m0.039s
 
 ## Historical Results ##
 
 ### Lenovo T530 ###
 
     master @ 7cc6f77b781916ee679d36e8fd1d1bcf77760353 (Proton 0.7 RC4)
-    real	2m1.102s
-    user	2m0.814s
-    sys 	0m0.026s
+    real   2m1.102s
+    user   2m0.814s
+    sys    0m0.026s
 
+    0.1.0-p0.7:
+    real   3m7.240s
+    user   3m6.832s
+    sys    0m0.026s
