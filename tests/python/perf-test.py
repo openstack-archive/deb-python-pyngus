@@ -25,10 +25,10 @@ import time
 import uuid
 
 from proton import Message
-import dingus
+import pyngus
 
 
-class PerfConnection(dingus.ConnectionEventHandler):
+class PerfConnection(pyngus.ConnectionEventHandler):
     def __init__(self, name, container, properties):
         self.name = name
         self.connection = container.create_connection(name, self,
@@ -90,7 +90,7 @@ class PerfReceiveConnection(PerfConnection):
                      self._msg_count, self._credit_window)
 
 
-class PerfSender(dingus.SenderEventHandler):
+class PerfSender(pyngus.SenderEventHandler):
     def __init__(self, address, perf_send_conn,
                  msg_count, batch_size):
         self.msg = Message()
@@ -132,7 +132,7 @@ class PerfSender(dingus.SenderEventHandler):
             self._send_msgs()
 
 
-class PerfReceiver(dingus.ReceiverEventHandler):
+class PerfReceiver(pyngus.ReceiverEventHandler):
     def __init__(self, address, handle, perf_receive_conn,
                  msg_count, credit_window):
         self.msg_count = msg_count
@@ -204,7 +204,7 @@ def main(argv=None):
 
     opts, extra = parser.parse_args(args=argv)
 
-    container = dingus.Container(uuid.uuid4().hex)
+    container = pyngus.Container(uuid.uuid4().hex)
 
     # sender acts like SSL client
     conn_properties = {'hostname': "test.server.com",

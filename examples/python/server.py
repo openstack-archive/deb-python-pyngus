@@ -27,7 +27,7 @@ import time
 import uuid
 
 from proton import Message
-import dingus
+import pyngus
 
 from utils import get_host_port
 from utils import server_socket
@@ -36,8 +36,8 @@ LOG = logging.getLogger()
 LOG.addHandler(logging.StreamHandler())
 
 
-class SocketConnection(dingus.ConnectionEventHandler):
-    """Associates a dingus Connection with a python network socket"""
+class SocketConnection(pyngus.ConnectionEventHandler):
+    """Associates a pyngus Connection with a python network socket"""
 
     def __init__(self, container, socket_, name, properties):
         """Create a Connection using socket_."""
@@ -74,7 +74,7 @@ class SocketConnection(dingus.ConnectionEventHandler):
     def process_input(self):
         """Called when socket is read-ready"""
         try:
-            dingus.read_socket_input(self.connection, self.socket)
+            pyngus.read_socket_input(self.connection, self.socket)
         except Exception as e:
             LOG.error("Exception on socket read: %s", str(e))
             # may be redundant if closed cleanly:
@@ -85,7 +85,7 @@ class SocketConnection(dingus.ConnectionEventHandler):
     def send_output(self):
         """Called when socket is write-ready"""
         try:
-            dingus.write_socket_output(self.connection,
+            pyngus.write_socket_output(self.connection,
                                        self.socket)
         except Exception as e:
             LOG.error("Exception on socket write: %s", str(e))
@@ -143,7 +143,7 @@ class SocketConnection(dingus.ConnectionEventHandler):
         LOG.debug("SASL done callback, result=%s", str(result))
 
 
-class MySenderLink(dingus.SenderEventHandler):
+class MySenderLink(pyngus.SenderEventHandler):
     """Send messages until credit runs out."""
     def __init__(self, socket_conn, handle, src_addr=None):
         self.socket_conn = socket_conn
@@ -198,7 +198,7 @@ class MySenderLink(dingus.SenderEventHandler):
             self.send_message()
 
 
-class MyReceiverLink(dingus.ReceiverEventHandler):
+class MyReceiverLink(pyngus.ReceiverEventHandler):
     """Receive messages, and drop them."""
     def __init__(self, socket_conn, handle, rx_addr=None):
         self.socket_conn = socket_conn
@@ -270,7 +270,7 @@ def main(argv=None):
 
     # create an AMQP container that will 'provide' the Server service
     #
-    container = dingus.Container("Server")
+    container = pyngus.Container("Server")
     socket_connections = set()
 
     # Main loop: process I/O and timer events:
@@ -278,7 +278,7 @@ def main(argv=None):
     while True:
         readers, writers, timers = container.need_processing()
 
-        # map dingus Connections back to my SocketConnections:
+        # map pyngus Connections back to my SocketConnections:
         readfd = [c.user_context for c in readers]
         writefd = [c.user_context for c in writers]
 

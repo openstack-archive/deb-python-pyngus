@@ -19,18 +19,18 @@
 import common
 import gc
 
-import dingus
+import pyngus
 
 
 class APITest(common.Test):
 
     def test_create_destroy(self):
-        container = dingus.Container("My-Container")
+        container = pyngus.Container("My-Container")
         assert container.name == "My-Container"
         container.destroy()
 
     def test_create_connection(self):
-        container = dingus.Container("A123")
+        container = pyngus.Container("A123")
         container.create_connection("c1")
         container.create_connection("c2")
         c1 = container.get_connection("c1")
@@ -42,7 +42,7 @@ class APITest(common.Test):
 
     def test_cleanup(self):
         gc.enable()
-        container = dingus.Container("abc")
+        container = pyngus.Container("abc")
         c1 = container.create_connection("c1")
         c2 = container.create_connection("c2")
         assert c2
@@ -62,7 +62,7 @@ class APITest(common.Test):
         assert not gc.garbage, "Object leak!"
 
     def test_need_processing(self):
-        container = dingus.Container("abc")
+        container = pyngus.Container("abc")
         c1 = container.create_connection("c1")
         c2 = container.create_connection("c2")
         props = {"idle-time-out": 10}

@@ -21,7 +21,7 @@ __all__ = [
 import heapq
 import logging
 
-from dingus.connection import Connection
+from pyngus.connection import Connection
 
 LOG = logging.getLogger(__name__)
 

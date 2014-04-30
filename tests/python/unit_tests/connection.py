@@ -24,15 +24,15 @@ import time
 from proton import Condition
 from proton import Message
 from proton import SSLUnavailable
-import dingus
+import pyngus
 
 
 class APITest(common.Test):
 
     def setup(self):
-        # logging.getLogger("dingus").setLevel(logging.DEBUG)
-        self.container1 = dingus.Container("test-container-1")
-        self.container2 = dingus.Container("test-container-2")
+        # logging.getLogger("pyngus").setLevel(logging.DEBUG)
+        self.container1 = pyngus.Container("test-container-1")
+        self.container2 = pyngus.Container("test-container-2")
 
     def teardown(self):
         if self.container1:
@@ -374,7 +374,7 @@ class APITest(common.Test):
         c2.open()
         common.process_connections(c1, c2)
         c1.close_input()
-        assert c1.needs_input == dingus.Connection.EOS
+        assert c1.needs_input == pyngus.Connection.EOS
         assert cb1.failed_ct == 0
         c1.process(time.time())
         assert cb1.failed_ct > 0
@@ -389,7 +389,7 @@ class APITest(common.Test):
         c2.open()
         common.process_connections(c1, c2)
         c1.close_output()
-        assert c1.has_output == dingus.Connection.EOS
+        assert c1.has_output == pyngus.Connection.EOS
         assert cb1.failed_ct == 0
         c1.process(time.time())
         assert cb1.failed_ct > 0
@@ -528,7 +528,7 @@ class APITest(common.Test):
 
     def _test_reject_receiver_sync(self, pn_condition):
 
-        class recv_reject(dingus.ConnectionEventHandler):
+        class recv_reject(pyngus.ConnectionEventHandler):
             def __init__(self, pn_condition):
                 self._pn_condition = pn_condition
 
@@ -703,7 +703,7 @@ class APITest(common.Test):
 
     def _test_reject_sender_sync(self, pn_condition):
 
-        class send_reject(dingus.ConnectionEventHandler):
+        class send_reject(pyngus.ConnectionEventHandler):
             def __init__(self, pn_condition):
                 self._pn_condition = pn_condition
 

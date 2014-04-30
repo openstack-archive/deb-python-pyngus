@@ -43,7 +43,7 @@ import uuid
 # hp = hpy()
 
 from proton import Message, Condition
-import dingus
+import pyngus
 
 LOG = logging.getLogger()
 LOG.addHandler(logging.StreamHandler())
@@ -60,8 +60,8 @@ reply_senders = {}
 socket_connections = {}  # indexed by name
 
 
-class SocketConnection(dingus.ConnectionEventHandler):
-    """Associates a dingus Connection with a python network socket"""
+class SocketConnection(pyngus.ConnectionEventHandler):
+    """Associates a pyngus Connection with a python network socket"""
 
     def __init__(self, name, socket_, container, conn_properties):
         self.name = name
@@ -91,7 +91,7 @@ class SocketConnection(dingus.ConnectionEventHandler):
     def process_input(self):
         """Called when socket is read-ready"""
         try:
-            dingus.read_socket_input(self.connection, self.socket)
+            pyngus.read_socket_input(self.connection, self.socket)
         except Exception as e:
             LOG.error("Exception on socket read: %s", str(e))
             # may be redundant if closed cleanly:
@@ -103,7 +103,7 @@ class SocketConnection(dingus.ConnectionEventHandler):
     def send_output(self):
         """Called when socket is write-ready"""
         try:
-            dingus.write_socket_output(self.connection,
+            pyngus.write_socket_output(self.connection,
                                        self.socket)
         except Exception as e:
             LOG.error("Exception on socket write: %s", str(e))
@@ -187,7 +187,7 @@ class SocketConnection(dingus.ConnectionEventHandler):
         LOG.debug("SASL done callback, result=%s", str(result))
 
 
-class MySenderLink(dingus.SenderEventHandler):
+class MySenderLink(pyngus.SenderEventHandler):
     """Link for sending RPC replies."""
     def __init__(self, ident, connection, link_handle,
                  source_address, properties=None):
@@ -227,7 +227,7 @@ class MySenderLink(dingus.SenderEventHandler):
         LOG.debug("message sent callback, status=%s", str(status))
 
 
-class MyReceiverLink(dingus.ReceiverEventHandler):
+class MyReceiverLink(pyngus.ReceiverEventHandler):
     """
     """
     def __init__(self, ident, connection, link_handle, target_address,
@@ -353,7 +353,7 @@ def main(argv=None):
 
     # create an AMQP container that will 'provide' the RPC service
     #
-    container = dingus.Container("example RPC service")
+    container = pyngus.Container("example RPC service")
     global socket_connections
 
     while True:
@@ -366,7 +366,7 @@ def main(argv=None):
         writefd = []
         readers, writers, timers = container.need_processing()
 
-        # map dingus Connections back to my SocketConnections
+        # map pyngus Connections back to my SocketConnections
         for c in readers:
             sc = c.user_context
             assert sc and isinstance(sc, SocketConnection)

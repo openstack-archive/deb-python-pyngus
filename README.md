@@ -1,4 +1,4 @@
-# dingus #
+# pyngus #
 
 A messaging framework built on the QPID Proton engine.  It provides a
 callback-based API for message passing.

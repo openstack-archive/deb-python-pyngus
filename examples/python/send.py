@@ -25,7 +25,7 @@ import sys
 import uuid
 
 from proton import Message
-import dingus
+import pyngus
 from utils import connect_socket
 from utils import get_host_port
 from utils import process_connection
@@ -67,7 +67,7 @@ def main(argv=None):
 
     # create AMQP Container, Connection, and SenderLink
     #
-    container = dingus.Container(uuid.uuid4().hex)
+    container = pyngus.Container(uuid.uuid4().hex)
     conn_properties = {'hostname': host}
     if opts.trace:
         conn_properties["x-trace-protocol"] = True

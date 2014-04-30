@@ -19,11 +19,11 @@
 #
 from distutils.core import setup
 
-setup(name="dingus",
+setup(name="pyngus",
       version="0.1.0",
       author="kgiusti",
       author_email="kgiusti@apache.org",
-      packages=["dingus"],
-      package_dir={"dingus": "python/dingus"},
+      packages=["pyngus"],
+      package_dir={"pyngus": "python/pyngus"},
       description="Callback API implemented over Proton",
       license="Apache Software License")

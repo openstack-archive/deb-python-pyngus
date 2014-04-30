@@ -24,14 +24,14 @@ from proton import Condition
 from proton import Message
 from proton import symbol
 
-import dingus
+import pyngus
 
 
 class APITest(common.Test):
 
     def setup(self, conn1_props=None, conn2_props=None):
-        # logging.getLogger("dingus").setLevel(logging.DEBUG)
-        self.container1 = dingus.Container("test-container-1")
+        # logging.getLogger("pyngus").setLevel(logging.DEBUG)
+        self.container1 = pyngus.Container("test-container-1")
         self.conn1_handler = common.ConnCallback()
         if conn1_props is None:
             # props = {"x-trace-protocol": True}
@@ -41,7 +41,7 @@ class APITest(common.Test):
                                                        conn1_props)
         self.conn1.open()
 
-        self.container2 = dingus.Container("test-container-2")
+        self.container2 = pyngus.Container("test-container-2")
         self.conn2_handler = common.ConnCallback()
         self.conn2 = self.container2.create_connection("conn2",
                                                        self.conn2_handler,
@@ -142,7 +142,7 @@ class APITest(common.Test):
         assert sl_handler.closed_ct
         assert sl_handler.active_ct == 0
         assert cb.count
-        assert cb.status == dingus.SenderLink.ABORTED
+        assert cb.status == pyngus.SenderLink.ABORTED
 
     def test_receiver_abort(self):
         rl_handler = common.ReceiverCallback()
@@ -316,7 +316,7 @@ class APITest(common.Test):
         self.process_connections()
         assert cb.link == sender
         assert cb.handle == "my-handle"
-        assert cb.status == dingus.SenderLink.ACCEPTED
+        assert cb.status == pyngus.SenderLink.ACCEPTED
 
     def test_send_released(self):
         cb = common.DeliveryCallback()
@@ -333,7 +333,7 @@ class APITest(common.Test):
         self.process_connections()
         assert cb.link == sender
         assert cb.handle == "my-handle"
-        assert cb.status == dingus.SenderLink.RELEASED
+        assert cb.status == pyngus.SenderLink.RELEASED
 
     def test_send_rejected(self):
         cb = common.DeliveryCallback()
@@ -352,7 +352,7 @@ class APITest(common.Test):
         self.process_connections()
         assert cb.link == sender
         assert cb.handle == "my-handle"
-        assert cb.status == dingus.SenderLink.REJECTED
+        assert cb.status == pyngus.SenderLink.REJECTED
         r_cond = cb.info.get("condition")
         assert r_cond and r_cond.name == "itchy"
 
@@ -372,7 +372,7 @@ class APITest(common.Test):
         self.process_connections()
         assert cb.link == sender
         assert cb.handle == "my-handle"
-        assert cb.status == dingus.SenderLink.MODIFIED
+        assert cb.status == pyngus.SenderLink.MODIFIED
         assert cb.info.get("delivery-failed") is False
         assert cb.info.get("undeliverable-here") is True
         info = cb.info.get("message-annotations")
@@ -392,7 +392,7 @@ class APITest(common.Test):
         assert cb.status is None
         self.process_connections(timestamp=10)
         assert sender.pending == 0
-        assert cb.status == dingus.SenderLink.TIMED_OUT
+        assert cb.status == pyngus.SenderLink.TIMED_OUT
 
     def test_send_expired_late_reply(self):
         cb = common.DeliveryCallback()
@@ -411,7 +411,7 @@ class APITest(common.Test):
         self.process_connections(timestamp=10)
         assert rl_handler.message_received_ct == 1
         assert sender.pending == 0
-        assert cb.status == dingus.SenderLink.TIMED_OUT
+        assert cb.status == pyngus.SenderLink.TIMED_OUT
         # late reply:
         assert cb.count == 1
         msg2, handle = rl_handler.received_messages[0]
@@ -440,7 +440,7 @@ class APITest(common.Test):
         self.process_connections(timestamp=12)
         assert sender.pending == 0
         assert cb.count == 1
-        assert cb.status == dingus.SenderLink.TIMED_OUT
+        assert cb.status == pyngus.SenderLink.TIMED_OUT
 
     def test_send_expired_no_callback(self):
         sender, receiver = self._setup_receiver_sync()
@@ -510,14 +510,14 @@ class APITest(common.Test):
                 if self.count == 1:
                     # verify that we can safely close ourself, even if there is
                     # a send that has not completed:
-                    assert status == dingus.SenderLink.ACCEPTED
+                    assert status == pyngus.SenderLink.ACCEPTED
                     cond = Condition("indigestion", "old sushi",
                                      {"smoked eel": "yummy"})
                     link.close(cond)
                 else:
                     # the unsent message is aborted prior
                     # to invoking closed callback:
-                    assert status == dingus.SenderLink.ABORTED
+                    assert status == pyngus.SenderLink.ABORTED
                     sl_handler = link.user_context
                     assert sl_handler.closed_ct == 0
 
@@ -551,7 +551,7 @@ class APITest(common.Test):
         cond = cb.info.get('condition')
         assert cond
         assert cond.name == "indigestion"
-        assert cb.status == dingus.SenderLink.ABORTED
+        assert cb.status == pyngus.SenderLink.ABORTED
 
     def test_multi_frame_message(self):
         """Verify multi-frame message send/receive."""
@@ -590,7 +590,7 @@ class APITest(common.Test):
         receiver1.message_accepted(handle)
         self.process_connections()
         assert cb.count
-        assert cb.status == dingus.SenderLink.ACCEPTED
+        assert cb.status == pyngus.SenderLink.ACCEPTED
 
     def test_dynamic_receiver_props(self):
         """Verify dynamic-node-properties can be requested."""
