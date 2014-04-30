@@ -16,9 +16,9 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-from dingus.container import Container
-from dingus.connection import Connection, ConnectionEventHandler
-from dingus.link import ReceiverLink, ReceiverEventHandler
-from dingus.link import SenderLink, SenderEventHandler
-from dingus.sockets import read_socket_input
-from dingus.sockets import write_socket_output
+from pyngus.container import Container
+from pyngus.connection import Connection, ConnectionEventHandler
+from pyngus.link import ReceiverLink, ReceiverEventHandler
+from pyngus.link import SenderLink, SenderEventHandler
+from pyngus.sockets import read_socket_input
+from pyngus.sockets import write_socket_output

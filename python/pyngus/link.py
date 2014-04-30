@@ -26,7 +26,7 @@ import collections
 import logging
 import proton
 
-from dingus.endpoint import Endpoint
+from pyngus.endpoint import Endpoint
 
 LOG = logging.getLogger(__name__)
 
@@ -264,7 +264,7 @@ class SenderLink(_Link):
 
     def send(self, message, delivery_callback=None,
              handle=None, deadline=None):
-        tag = "dingus-tag-%s" % self._next_tag
+        tag = "pyngus-tag-%s" % self._next_tag
         self._next_tag += 1
         send_req = SenderLink._SendRequest(self, tag, message,
                                            delivery_callback, handle,

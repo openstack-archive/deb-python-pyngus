@@ -19,7 +19,7 @@
 
 import time
 
-import dingus
+import pyngus
 
 
 class Test(object):
@@ -94,7 +94,7 @@ def _validate_callback(connection):
     assert connection._in_process
 
 
-class ConnCallback(dingus.ConnectionEventHandler):
+class ConnCallback(pyngus.ConnectionEventHandler):
     """Caches the callback parameters for processing by a test."""
     class RequestArgs(object):
         def __init__(self, handle, name, source, target, props):
@@ -166,7 +166,7 @@ class ConnCallback(dingus.ConnectionEventHandler):
         self.sasl_done_ct += 1
 
 
-class SenderCallback(dingus.SenderEventHandler):
+class SenderCallback(pyngus.SenderEventHandler):
     def __init__(self):
         self.active_ct = 0
         self.remote_closed_ct = 0
@@ -210,7 +210,7 @@ class DeliveryCallback(object):
         self.count += 1
 
 
-class ReceiverCallback(dingus.ReceiverEventHandler):
+class ReceiverCallback(pyngus.ReceiverEventHandler):
     def __init__(self):
         self.active_ct = 0
         self.remote_closed_ct = 0

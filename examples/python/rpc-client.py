@@ -34,13 +34,13 @@ import time
 import uuid
 
 from proton import Message
-import dingus
+import pyngus
 
 LOG = logging.getLogger()
 LOG.addHandler(logging.StreamHandler())
 
 
-class MyConnection(dingus.ConnectionEventHandler):
+class MyConnection(pyngus.ConnectionEventHandler):
 
     def __init__(self, name, container, properties):
         self.name = name
@@ -95,11 +95,11 @@ class MyConnection(dingus.ConnectionEventHandler):
         LOG.debug("select() returned")
 
         if readable:
-            dingus.read_socket_input(self.connection,
+            pyngus.read_socket_input(self.connection,
                                      self.socket)
         self.connection.process(time.time())
         if writable:
-            dingus.write_socket_output(self.connection,
+            pyngus.write_socket_output(self.connection,
                                        self.socket)
 
     def close(self, error=None):
@@ -160,8 +160,8 @@ class MyConnection(dingus.ConnectionEventHandler):
         LOG.debug("SASL done, result=%s", str(result))
 
 
-class MyCaller(dingus.SenderEventHandler,
-               dingus.ReceiverEventHandler):
+class MyCaller(pyngus.SenderEventHandler,
+               pyngus.ReceiverEventHandler):
     """Implements state for a single RPC call."""
 
     def __init__(self, method_map, my_connection,
@@ -355,7 +355,7 @@ def main(argv=None):
 
     # create AMQP container, connection, sender and receiver
     #
-    container = dingus.Container(uuid.uuid4().hex)
+    container = pyngus.Container(uuid.uuid4().hex)
     conn_properties = {}
     if opts.trace:
         conn_properties["x-trace-protocol"] = True

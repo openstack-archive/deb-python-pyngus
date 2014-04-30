@@ -24,7 +24,7 @@ import optparse
 import sys
 import uuid
 
-import dingus
+import pyngus
 from utils import connect_socket
 from utils import get_host_port
 from utils import process_connection
@@ -62,7 +62,7 @@ def main(argv=None):
 
     # create AMQP Container, Connection, and SenderLink
     #
-    container = dingus.Container(uuid.uuid4().hex)
+    container = pyngus.Container(uuid.uuid4().hex)
     conn_properties = {'hostname': host}
     if opts.trace:
         conn_properties["x-trace-protocol"] = True
@@ -78,7 +78,7 @@ def main(argv=None):
     connection.pn_sasl.client()
     connection.open()
 
-    class ReceiveCallback(dingus.ReceiverEventHandler):
+    class ReceiveCallback(pyngus.ReceiverEventHandler):
         def __init__(self):
             self.done = False
             self.message = None

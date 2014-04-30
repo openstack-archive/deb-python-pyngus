@@ -24,7 +24,7 @@ import socket
 import select
 import time
 
-import dingus
+import pyngus
 
 
 def get_host_port(server_address):
@@ -103,19 +103,19 @@ def process_connection(connection, my_socket):
                                                [],
                                                timeout)
     if readable:
-        dingus.read_socket_input(connection, my_socket)
+        pyngus.read_socket_input(connection, my_socket)
     connection.process(time.time())
     if writable:
-        dingus.write_socket_output(connection, my_socket)
+        pyngus.write_socket_output(connection, my_socket)
     return True
 
 # Map the send callback status to a string
 SEND_STATUS = {
-    dingus.SenderLink.ABORTED: "Aborted",
-    dingus.SenderLink.TIMED_OUT: "Timed-out",
-    dingus.SenderLink.UNKNOWN: "Unknown",
-    dingus.SenderLink.ACCEPTED: "Accepted",
-    dingus.SenderLink.REJECTED: "REJECTED",
-    dingus.SenderLink.RELEASED: "RELEASED",
-    dingus.SenderLink.MODIFIED: "MODIFIED"
+    pyngus.SenderLink.ABORTED: "Aborted",
+    pyngus.SenderLink.TIMED_OUT: "Timed-out",
+    pyngus.SenderLink.UNKNOWN: "Unknown",
+    pyngus.SenderLink.ACCEPTED: "Accepted",
+    pyngus.SenderLink.REJECTED: "REJECTED",
+    pyngus.SenderLink.RELEASED: "RELEASED",
+    pyngus.SenderLink.MODIFIED: "MODIFIED"
 }

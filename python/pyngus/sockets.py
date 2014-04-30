@@ -27,7 +27,7 @@ import errno
 import logging
 import socket
 
-from dingus.connection import Connection
+from pyngus.connection import Connection
 
 LOG = logging.getLogger(__name__)
 

@@ -26,8 +26,8 @@ import proton
 import time
 import warnings
 
-from dingus.endpoint import Endpoint
-from dingus.link import _SessionProxy
+from pyngus.endpoint import Endpoint
+from pyngus.link import _SessionProxy
 
 LOG = logging.getLogger(__name__)
 
