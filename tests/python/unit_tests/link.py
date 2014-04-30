@@ -22,6 +22,7 @@ import time
 
 from proton import Condition
 from proton import Message
+from proton import symbol
 
 import dingus
 
@@ -590,3 +591,33 @@ class APITest(common.Test):
         self.process_connections()
         assert cb.count
         assert cb.status == dingus.SenderLink.ACCEPTED
+
+    def test_dynamic_receiver_props(self):
+        """Verify dynamic-node-properties can be requested."""
+        # dynamic receive link:
+        DELETE_ON_CLOSE = 0x000000000000002b
+        desired_props = {symbol("lifetime-policy"): DELETE_ON_CLOSE}
+        props = {"dynamic-node-properties": desired_props}
+        sender = self.conn1.create_sender("saddr",
+                                          target_address=None,
+                                          properties=props)
+        sender.open()
+        self.process_connections()
+        assert self.conn2_handler.receiver_requested_ct == 1
+        args = self.conn2_handler.receiver_requested_args[0]
+        dnp = args.properties.get('dynamic-node-properties')
+        assert dnp and dnp == desired_props
+
+        # dynamic send link:
+        desired_props = {symbol("supported-dist-modes"):
+                         [symbol("move"), symbol("copy")]}
+        props = {"dynamic-node-properties": desired_props}
+        receiver = self.conn1.create_receiver("taddr",
+                                              source_address=None,
+                                              properties=props)
+        receiver.open()
+        self.process_connections()
+        assert self.conn2_handler.sender_requested_ct == 1
+        args = self.conn2_handler.sender_requested_args[0]
+        dnp = args.properties.get('dynamic-node-properties')
+        assert dnp and dnp == desired_props

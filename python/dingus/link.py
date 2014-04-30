@@ -51,21 +51,9 @@ class _Link(Endpoint):
         self._handler = handler
         self._properties = properties
 
-        if target_address is None:
-            if not self._pn_link.is_sender:
-                raise Exception("Dynamic target not allowed")
-            self._pn_link.target.dynamic = True
-        elif target_address:
-            self._pn_link.target.address = target_address
-
-        if source_address is None:
-            if not self._pn_link.is_receiver:
-                raise Exception("Dynamic source not allowed")
-            self._pn_link.source.dynamic = True
-        elif source_address:
-            self._pn_link.source.address = source_address
-
+        dynamic_props = None
         if properties:
+            dynamic_props = properties.get("dynamic-node-properties")
             desired_mode = properties.get("distribution-mode")
             if desired_mode:
                 if desired_mode == "copy":
@@ -76,6 +64,26 @@ class _Link(Endpoint):
                     raise Exception("Unknown distribution mode: %s" %
                                     str(desired_mode))
                 self._pn_link.source.distribution_mode = mode
+
+        if target_address is None:
+            if not self._pn_link.is_sender:
+                raise Exception("Dynamic target not allowed")
+            self._pn_link.target.dynamic = True
+            if dynamic_props:
+                self._pn_link.target.properties.clear()
+                self._pn_link.target.properties.put_dict(dynamic_props)
+        elif target_address:
+            self._pn_link.target.address = target_address
+
+        if source_address is None:
+            if not self._pn_link.is_receiver:
+                raise Exception("Dynamic source not allowed")
+            self._pn_link.source.dynamic = True
+            if dynamic_props:
+                self._pn_link.source.properties.clear()
+                self._pn_link.source.properties.put_dict(dynamic_props)
+        elif source_address:
+            self._pn_link.source.address = source_address
 
     @property
     def name(self):
@@ -411,14 +419,18 @@ class SenderLink(_Link):
         handler = self._connection._handler
         if handler:
             pn_link = self._pn_link
+            props = {}
             # has the remote requested a source address?
             req_source = ""
             if pn_link.remote_source.dynamic:
                 req_source = None
+                req_props = pn_link.remote_source.properties
+                if req_props and req_props.next() == proton.Data.MAP:
+                    props["dynamic-node-properties"] = req_props.get_dict()
             elif pn_link.remote_source.address:
                 req_source = pn_link.remote_source.address
 
-            props = {"target-address": pn_link.remote_target.address}
+            props["target-address"] = pn_link.remote_target.address
             dist_mode = pn_link.remote_source.distribution_mode
             if (dist_mode == proton.Terminus.DIST_MODE_COPY):
                 props["distribution-mode"] = "copy"
@@ -559,14 +571,18 @@ class ReceiverLink(_Link):
         handler = self._connection._handler
         if handler:
             pn_link = self._pn_link
+            props = {}
             # has the remote requested a target address?
             req_target = ""
             if pn_link.remote_target.dynamic:
                 req_target = None
+                req_props = pn_link.remote_target.properties
+                if req_props and req_props.next() == proton.Data.MAP:
+                    props["dynamic-node-properties"] = req_props.get_dict()
             elif pn_link.remote_target.address:
                 req_target = pn_link.remote_target.address
 
-            props = {"source-address": pn_link.remote_source.address}
+            props["source-address"] = pn_link.remote_source.address
             dist_mode = pn_link.remote_source.distribution_mode
             if (dist_mode == proton.Terminus.DIST_MODE_COPY):
                 props["distribution-mode"] = "copy"

@@ -90,6 +90,8 @@ class Connection(Endpoint):
         idle-time-out: float, time in seconds before an idle link will be
         closed.
 
+        properties: map, connection properties sent to the peer.
+
         max-frame-size: int, maximum acceptable frame size in bytes.
 
         The following custom connection properties are supported:
@@ -151,6 +153,8 @@ class Connection(Endpoint):
             max_frame = properties.get("max-frame-size")
             if max_frame:
                 self._pn_transport.max_frame_size = max_frame
+            if 'properties' in properties:
+                self._pn_connection.properties = properties["properties"]
             if properties.get("x-trace-protocol"):
                 self._pn_transport.trace(proton.Transport.TRACE_FRM)
 
@@ -205,6 +209,13 @@ class Connection(Endpoint):
         """Return the hostname advertised by the remote, if present."""
         if self._pn_connection:
             return self._pn_connection.remote_hostname
+        return None
+
+    @property
+    def remote_properties(self):
+        """Properties provided by the peer."""
+        if self._pn_connection:
+            return self._pn_connection.remote_properties
         return None
 
     # TODO(kgiusti) - think about server side use of sasl!

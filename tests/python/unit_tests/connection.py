@@ -261,6 +261,18 @@ class APITest(common.Test):
         assert not c1.remote_hostname
         assert c2.remote_hostname == "TomServo"
 
+    def test_connection_properties(self):
+        conn_props = {"prop1": "value1", "prop2": 2}
+        props = {"properties": conn_props}
+        c1 = self.container1.create_connection("c1", properties=props)
+        c2 = self.container2.create_connection("c2")
+        c1.open()
+        c2.open()
+        common.process_connections(c1, c2)
+        assert c1.active and c2.active
+        assert not c1.remote_properties
+        assert c2.remote_properties == conn_props
+
     def test_create_sender(self):
         s_conn = self.container1.create_connection("s")
         r_events = common.ConnCallback()
