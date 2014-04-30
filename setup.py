@@ -26,4 +26,5 @@ setup(name="pyngus",
       packages=["pyngus"],
       package_dir={"pyngus": "python/pyngus"},
       description="Callback API implemented over Proton",
+      url="https://github.com/kgiusti/pyngus",
       license="Apache Software License")
