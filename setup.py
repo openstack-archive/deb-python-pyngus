@@ -20,7 +20,7 @@
 from distutils.core import setup
 
 setup(name="pyngus",
-      version="0.1.0-p0.7",
+      version="0.1.1",
       author="kgiusti",
       author_email="kgiusti@apache.org",
       packages=["pyngus"],
