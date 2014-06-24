@@ -272,10 +272,14 @@ class Connection(Endpoint):
         self._receiver_links.clear()
         self._container.remove_connection(self._name)
         self._container = None
-        self._pn_collector = None
-        self._pn_connection = None
-        self._pn_transport = None
         self._user_context = None
+        self._pn_transport.unbind()
+        self._pn_transport = None
+        self._pn_connection = None
+        # memory leak: drain the collector before releasing it
+        while self._pn_collector.peek():
+            self._pn_collector.pop()
+        self._pn_collector = None
 
     _REMOTE_REQ = (proton.Endpoint.LOCAL_UNINIT
                    | proton.Endpoint.REMOTE_ACTIVE)

@@ -59,7 +59,7 @@ class APITest(common.Test):
         container.destroy()
         del container
         gc.collect()
-        assert not gc.garbage, "Object leak!"
+        assert not gc.garbage, "Object leak: %s" % str(gc.garbage)
 
     def test_need_processing(self):
         container = pyngus.Container("abc")
