@@ -27,4 +27,8 @@ setup(name="pyngus",
       package_dir={"pyngus": "python/pyngus"},
       description="Callback API implemented over Proton",
       url="https://github.com/kgiusti/pyngus",
-      license="Apache Software License")
+      license="Apache Software License",
+      classifiers=["License :: OSI Approved :: Apache Software License",
+                   "Intended Audience :: Developers",
+                   "Operating System :: OS Independent",
+                   "Programming Language :: Python"])

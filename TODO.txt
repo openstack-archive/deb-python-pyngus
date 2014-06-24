@@ -1,3 +1,4 @@
+No further endpoint callbacks once application destroys it.
 Incomplete: message send timeout.
 Incomplete: dynamic node-properties support
 Bugfix: aborting pending message must not call back until Connection.process() is called.
