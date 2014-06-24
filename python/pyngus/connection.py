@@ -341,8 +341,9 @@ class Connection(Endpoint):
                 elif pn_event.type == proton.Event.SESSION_REMOTE_STATE:
                     pn_session = pn_event.session
                     # create a new session if requested by remote:
-                    if (not hasattr(pn_session, 'context')
-                            or pn_session.context is None):
+                    c = hasattr(pn_session, 'context') and pn_session.context
+                    if ((not c) and
+                            (pn_session.state & proton.Endpoint.LOCAL_UNINIT)):
                         LOG.debug("Opening remotely initiated session")
                         name = "session-%d" % self._remote_session_id
                         self._remote_session_id += 1
@@ -351,13 +352,16 @@ class Connection(Endpoint):
 
                 elif pn_event.type == proton.Event.SESSION_LOCAL_STATE:
                     pn_session = pn_event.session
-                    pn_session.context.process_local_state()
+                    session = pn_session.context
+                    if session:
+                        session.process_local_state()
 
                 elif pn_event.type == proton.Event.LINK_REMOTE_STATE:
                     pn_link = pn_event.link
                     # create a new link if requested by remote:
-                    if (not hasattr(pn_link, 'context')
-                            or pn_link.context is None):
+                    c = hasattr(pn_link, 'context') and pn_link.context
+                    if ((not c) and
+                            (pn_link.state & proton.Endpoint.LOCAL_UNINIT)):
                         session = pn_link.session.context
                         if (pn_link.is_sender and
                                 pn_link.name not in self._sender_links):
@@ -373,7 +377,9 @@ class Connection(Endpoint):
 
                 elif pn_event.type == proton.Event.LINK_LOCAL_STATE:
                     pn_link = pn_event.link
-                    pn_link.context.process_local_state()
+                    link = pn_link.context
+                    if link:
+                        link.process_local_state()
 
                 elif pn_event.type == proton.Event.DELIVERY:
                     link = pn_event.link.context
