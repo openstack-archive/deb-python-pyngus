@@ -212,6 +212,23 @@ class APITest(common.Test):
         c1.process(time.time())
         assert c1_events.failed_ct == 0
 
+    def test_destroy_then_process(self):
+        """Verify a destroyed connection can be processed."""
+        props = {"idle-time-out": 1}
+        c1 = self.container1.create_connection("c1", properties=props)
+        c2 = self.container1.create_connection("c2", properties=props)
+        c1.open()
+        c2.open()
+        common.process_connections(c1, c2, 1)
+        # grab a list of connections needing I/O
+        r, w, t = self.container1.need_processing()
+        # now destroy one of the connections before processing it:
+        c1.destroy()
+        for c in r + w + t:
+            c.process(2)
+        c2.close()
+        c2.process(3)
+
     def test_sasl_callbacks(self):
         """Verify access to the connection's SASL state."""
         class SaslCallbackServer(common.ConnCallback):

@@ -273,6 +273,8 @@ class Connection(Endpoint):
         return (self._write_done and self._read_done)
 
     def destroy(self):
+        self._error = "Destroyed"
+        self._handler = None
         self._sender_links.clear()
         self._receiver_links.clear()
         self._container.remove_connection(self._name)

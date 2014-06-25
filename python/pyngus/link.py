@@ -158,6 +158,7 @@ class _Link(Endpoint):
         LOG.debug("link destroyed %s", str(self._pn_link))
         self._user_context = None
         self._connection = None
+        self._handler = None
         if self._pn_link:
             session = self._pn_link.session.context
             self._pn_link.context = None
