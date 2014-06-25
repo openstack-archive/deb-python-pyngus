@@ -172,12 +172,17 @@ class Connection(Endpoint):
         self._user_context = None
         self._in_process = False
         self._remote_session_id = 0
-
-        self._pn_ssl = self._configure_ssl(properties)
-
         # TODO(kgiusti) sasl configuration and handling
         self._pn_sasl = None
         self._sasl_done = False
+
+        # intercept any SSL failures and cleanup resources before propagating
+        # the exception:
+        try:
+            self._pn_ssl = self._configure_ssl(properties)
+        except:
+            self.destroy()
+            raise
 
     @property
     def container(self):

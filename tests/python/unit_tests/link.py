@@ -30,6 +30,7 @@ import pyngus
 class APITest(common.Test):
 
     def setup(self, conn1_props=None, conn2_props=None):
+        super(APITest, self).setup()
         # logging.getLogger("pyngus").setLevel(logging.DEBUG)
         self.container1 = pyngus.Container("test-container-1")
         self.conn1_handler = common.ConnCallback()
@@ -60,6 +61,7 @@ class APITest(common.Test):
             self.conn2.destroy()
         if self.container2:
             self.container2.destroy()
+        super(APITest, self).teardown()
 
     def _setup_sender_sync(self):
         """Create links, initiated by sender."""
@@ -456,6 +458,7 @@ class APITest(common.Test):
     def test_send_deadline_idle(self):
         """Validate the connection's deadline processing."""
 
+        self.teardown()
         self.setup(conn1_props={"idle-time-out": 99})
 
         sender1 = self.conn1.create_sender("src1", "tgt1")
@@ -556,6 +559,7 @@ class APITest(common.Test):
     def test_multi_frame_message(self):
         """Verify multi-frame message send/receive."""
 
+        self.teardown()
         props = {"max-frame-size": 512}
         self.setup(conn1_props=props, conn2_props=props)
 

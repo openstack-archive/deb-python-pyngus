@@ -25,11 +25,17 @@ import pyngus
 class APITest(common.Test):
 
     def test_create_destroy(self):
+        gc.enable()
+        gc.collect()
+        assert not gc.garbage, "Object leak: %s" % str(gc.garbage)
         container = pyngus.Container("My-Container")
         assert container.name == "My-Container"
         container.destroy()
 
     def test_create_connection(self):
+        gc.enable()
+        gc.collect()
+        assert not gc.garbage, "Object leak: %s" % str(gc.garbage)
         container = pyngus.Container("A123")
         container.create_connection("c1")
         container.create_connection("c2")
@@ -42,6 +48,8 @@ class APITest(common.Test):
 
     def test_cleanup(self):
         gc.enable()
+        gc.collect()
+        assert not gc.garbage, "Object leak: %s" % str(gc.garbage)
         container = pyngus.Container("abc")
         c1 = container.create_connection("c1")
         c2 = container.create_connection("c2")
@@ -62,6 +70,9 @@ class APITest(common.Test):
         assert not gc.garbage, "Object leak: %s" % str(gc.garbage)
 
     def test_need_processing(self):
+        gc.enable()
+        gc.collect()
+        assert not gc.garbage, "Object leak: %s" % str(gc.garbage)
         container = pyngus.Container("abc")
         c1 = container.create_connection("c1")
         c2 = container.create_connection("c2")

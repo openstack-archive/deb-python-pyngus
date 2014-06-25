@@ -30,6 +30,7 @@ import pyngus
 class APITest(common.Test):
 
     def setup(self):
+        super(APITest, self).setup()
         # logging.getLogger("pyngus").setLevel(logging.DEBUG)
         self.container1 = pyngus.Container("test-container-1")
         self.container2 = pyngus.Container("test-container-2")
@@ -39,6 +40,7 @@ class APITest(common.Test):
             self.container1.destroy()
         if self.container2:
             self.container2.destroy()
+        super(APITest, self).teardown()
 
     def test_create_destroy(self):
         """Verify Connection construction/destruction."""

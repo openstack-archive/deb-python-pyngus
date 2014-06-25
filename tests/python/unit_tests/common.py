@@ -17,6 +17,7 @@
 # under the License.
 #
 
+import gc
 import time
 
 import pyngus
@@ -38,10 +39,13 @@ class Test(object):
         return self.config.defines.get(name, default)
 
     def setup(self):
-        pass
+        gc.enable()
+        gc.collect()
+        assert not gc.garbage, "Object leak: %s" % str(gc.garbage)
 
     def teardown(self):
-        pass
+        gc.collect()
+        assert not gc.garbage, "Object leak: %s" % str(gc.garbage)
 
     @property
     def delay(self):
