@@ -64,6 +64,11 @@ class _Link(Endpoint):
                     raise Exception("Unknown distribution mode: %s" %
                                     str(desired_mode))
                 self._pn_link.source.distribution_mode = mode
+            snd_settle_mode = properties.get("snd-settle-mode")
+            if snd_settle_mode == "settled":
+                self._pn_link.snd_settle_mode = self._pn_link.SND_SETTLED
+            elif snd_settle_mode == "unsettled":
+                self._pn_link.snd_settle_mode = self._pn_link.SND_UNSETTLED
 
         if target_address is None:
             if not self._pn_link.is_sender:
