@@ -17,10 +17,10 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-from distutils.core import setup
+from setuptools import setup
 
 setup(name="pyngus",
-      version="1.0.0",
+      version="1.1.0",
       author="kgiusti",
       author_email="kgiusti@apache.org",
       packages=["pyngus"],
@@ -28,6 +28,7 @@ setup(name="pyngus",
       description="Callback API implemented over Proton",
       url="https://github.com/kgiusti/pyngus",
       license="Apache Software License",
+      # install_requires=['python-qpid-proton>=0.7,<0.8'],
       classifiers=["License :: OSI Approved :: Apache Software License",
                    "Intended Audience :: Developers",
                    "Operating System :: OS Independent",
