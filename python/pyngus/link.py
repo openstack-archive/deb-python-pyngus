@@ -30,6 +30,15 @@ from pyngus.endpoint import Endpoint
 
 LOG = logging.getLogger(__name__)
 
+# map property names to proton values:
+_dist_modes = {"copy": proton.Terminus.DIST_MODE_COPY,
+               "move": proton.Terminus.DIST_MODE_MOVE}
+_snd_settle_modes = {"settled": proton.Link.SND_SETTLED,
+                     "unsettled": proton.Link.SND_UNSETTLED,
+                     "mixed": proton.Link.SND_MIXED}
+_rcv_settle_modes = {"first": proton.Link.RCV_FIRST,
+                     "second": proton.Link.RCV_SECOND}
+
 
 class _Link(Endpoint):
     """A generic Link base class."""
@@ -54,21 +63,15 @@ class _Link(Endpoint):
         dynamic_props = None
         if properties:
             dynamic_props = properties.get("dynamic-node-properties")
-            desired_mode = properties.get("distribution-mode")
-            if desired_mode:
-                if desired_mode == "copy":
-                    mode = proton.Terminus.DIST_MODE_COPY
-                elif desired_mode == "move":
-                    mode = proton.Terminus.DIST_MODE_MOVE
-                else:
-                    raise Exception("Unknown distribution mode: %s" %
-                                    str(desired_mode))
+            mode = _dist_modes.get(properties.get("distribution-mode"))
+            if mode is not None:
                 self._pn_link.source.distribution_mode = mode
-            snd_settle_mode = properties.get("snd-settle-mode")
-            if snd_settle_mode == "settled":
-                self._pn_link.snd_settle_mode = self._pn_link.SND_SETTLED
-            elif snd_settle_mode == "unsettled":
-                self._pn_link.snd_settle_mode = self._pn_link.SND_UNSETTLED
+            mode = _snd_settle_modes.get(properties.get("snd-settle-mode"))
+            if mode is not None:
+                self._pn_link.snd_settle_mode = mode
+            mode = _rcv_settle_modes.get(properties.get("rcv-settle-mode"))
+            if mode is not None:
+                self._pn_link.rcv_settle_mode = mode
 
         if target_address is None:
             if not self._pn_link.is_sender:
@@ -200,6 +203,21 @@ class _Link(Endpoint):
         super(_Link, self)._ep_error()
         self._failed = True
         self._link_failed("Endpoint protocol error.")
+
+
+def _get_remote_settle_modes(pn_link):
+    """Return a map containing the settle modes as provided by the remote.
+    Skip any default value.
+    """
+    modes = {}
+    snd = pn_link.remote_snd_settle_mode
+    if snd == proton.Link.SND_UNSETTLED:
+        modes['snd-settle-mode'] = 'unsettled'
+    elif snd == proton.Link.SND_SETTLED:
+        modes['snd-settle-mode'] = 'settled'
+    if pn_link.remote_rcv_settle_mode == proton.Link.RCV_SECOND:
+        modes['rcv-settle-mode'] = 'second'
+    return modes
 
 
 class SenderEventHandler(object):
@@ -425,7 +443,7 @@ class SenderLink(_Link):
         handler = self._connection._handler
         if handler:
             pn_link = self._pn_link
-            props = {}
+            props = _get_remote_settle_modes(pn_link)
             # has the remote requested a source address?
             req_source = ""
             if pn_link.remote_source.dynamic:
@@ -577,7 +595,7 @@ class ReceiverLink(_Link):
         handler = self._connection._handler
         if handler:
             pn_link = self._pn_link
-            props = {}
+            props = _get_remote_settle_modes(pn_link)
             # has the remote requested a target address?
             req_target = ""
             if pn_link.remote_target.dynamic:
