@@ -625,3 +625,68 @@ class APITest(common.Test):
         args = self.conn2_handler.sender_requested_args[0]
         dnp = args.properties.get('dynamic-node-properties')
         assert dnp and dnp == desired_props
+
+    def test_use_after_free(self):
+        """Causes proton library to segfault!!!"""
+        raise common.Skipped("Skipping test - causes segfault in proton!")
+        sender = self.conn1.create_sender("src1", "tgt1")
+        sender.open()
+        self.process_connections()
+        assert self.conn2_handler.receiver_requested_ct == 1
+        args = self.conn2_handler.receiver_requested_args[0]
+        assert args.properties.get('snd-settle-mode') is None
+        self.conn2.reject_receiver(args.link_handle)
+        self.process_connections()
+        sender.destroy()
+
+        props = {"snd-settle-mode": "settled"}
+        sender = self.conn1.create_sender("src1", "tgt1",
+                                          properties=props)
+        sender.open()
+        self.process_connections()
+
+    def test_settle_modes(self):
+        """Verify the configured settlement modes are visible to the peer.
+        """
+        # defaults (none given)
+        sender = self.conn1.create_sender("src1", "tgt1")
+        sender.open()
+        receiver = self.conn1.create_receiver("tgta", "srca")
+        receiver.open()
+        self.process_connections()
+        assert self.conn2_handler.receiver_requested_ct == 1
+        args = self.conn2_handler.receiver_requested_args[0]
+        assert args.properties.get('snd-settle-mode') is None
+        assert args.properties.get('rcv-settle-mode') is None
+        assert self.conn2_handler.sender_requested_ct == 1
+        args = self.conn2_handler.sender_requested_args[0]
+        assert args.properties.get('snd-settle-mode') is None
+        assert args.properties.get('rcv-settle-mode') is None
+
+        # settled
+        props = {"snd-settle-mode": "settled",
+                 "rcv-settle-mode": "second"}
+        sender = self.conn1.create_sender("src2", "tgt2",
+                                          properties=props)
+        sender.open()
+        self.process_connections()
+        assert self.conn2_handler.receiver_requested_ct == 2
+        args = self.conn2_handler.receiver_requested_args[1]
+        mode = args.properties.get('snd-settle-mode')
+        assert mode and mode == 'settled'
+        mode = args.properties.get('rcv-settle-mode')
+        assert mode and mode == 'second'
+
+        # unsettled
+        props = {"snd-settle-mode": "unsettled",
+                 "rcv-settle-mode": "second"}
+        recver = self.conn1.create_receiver("tgt3", "src3",
+                                            properties=props)
+        recver.open()
+        self.process_connections()
+        assert self.conn2_handler.sender_requested_ct == 2
+        args = self.conn2_handler.sender_requested_args[1]
+        mode = args.properties.get('snd-settle-mode')
+        assert mode and mode == 'unsettled'
+        mode = args.properties.get('rcv-settle-mode')
+        assert mode and mode == 'second'
