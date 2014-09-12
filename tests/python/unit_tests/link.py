@@ -628,7 +628,8 @@ class APITest(common.Test):
 
     def test_use_after_free(self):
         """Causes proton library to segfault!!!"""
-        raise common.Skipped("Skipping test - causes segfault in proton!")
+        if self.PROTON_VERSION < (0, 8):
+            raise common.Skipped("Skipping test - causes segfault in proton!")
         sender = self.conn1.create_sender("src1", "tgt1")
         sender.open()
         self.process_connections()

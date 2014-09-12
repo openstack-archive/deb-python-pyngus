@@ -30,6 +30,9 @@ from pyngus.endpoint import Endpoint
 
 LOG = logging.getLogger(__name__)
 
+_PROTON_VERSION = (int(getattr(proton, "VERSION_MAJOR", 0)),
+                   int(getattr(proton, "VERSION_MINOR", 0)))
+
 # map property names to proton values:
 _dist_modes = {"copy": proton.Terminus.DIST_MODE_COPY,
                "move": proton.Terminus.DIST_MODE_MOVE}
@@ -194,15 +197,95 @@ class _Link(Endpoint):
             self._failed = True
             self._link_failed("Parent session closed.")
 
+    # Proton's event model was changed after 0.7
+    if (_PROTON_VERSION >= (0, 8)):
+        _endpoint_event_map = {
+            proton.Event.LINK_REMOTE_OPEN: Endpoint.REMOTE_OPENED,
+            proton.Event.LINK_REMOTE_CLOSE: Endpoint.REMOTE_CLOSED,
+            proton.Event.LINK_OPEN: Endpoint.LOCAL_OPENED,
+            proton.Event.LINK_CLOSE: Endpoint.LOCAL_CLOSED}
+
+        @staticmethod
+        def _handle_proton_event(pn_event, connection):
+            ep_event = _Link._endpoint_event_map.get(pn_event.type)
+            if pn_event.type == proton.Event.DELIVERY:
+                pn_delivery = pn_event.context
+                pn_link = pn_delivery.link
+                pn_link.context._process_delivery(pn_delivery)
+            elif pn_event.type == proton.Event.LINK_FLOW:
+                pn_link = pn_event.context
+                pn_link.context._process_credit()
+            elif ep_event is not None:
+                pn_link = pn_event.context
+                if pn_link.context:
+                    pn_link.context._process_endpoint_event(ep_event)
+            elif pn_event.type == proton.Event.LINK_INIT:
+                pn_link = pn_event.context
+                # create a new link if requested by remote:
+                c = hasattr(pn_link, 'context') and pn_link.context
+                if not c:
+                    session = pn_link.session.context
+                    if (pn_link.is_sender and
+                            pn_link.name not in connection._sender_links):
+                        LOG.debug("Remotely initiated Sender needs init")
+                        link = session.request_sender(pn_link)
+                        connection._sender_links[pn_link.name] = link
+                    elif (pn_link.is_receiver and
+                          pn_link.name not in connection._receiver_links):
+                        LOG.debug("Remotely initiated Receiver needs init")
+                        link = session.request_receiver(pn_link)
+                        connection._receiver_links[pn_link.name] = link
+            elif pn_event.type == proton.Event.LINK_FINAL:
+                LOG.debug("link finalized: %s", pn_event.context)
+            else:
+                return False  # unknown
+            return True  # handled
+    elif hasattr(proton.Event, "LINK_REMOTE_STATE"):
+        # 0.7 proton event model
+        @staticmethod
+        def _handle_proton_event(pn_event, connection):
+            if pn_event.type == proton.Event.LINK_REMOTE_STATE:
+                pn_link = pn_event.link
+                # create a new link if requested by remote:
+                c = hasattr(pn_link, 'context') and pn_link.context
+                if ((not c) and
+                        (pn_link.state & proton.Endpoint.LOCAL_UNINIT)):
+                    session = pn_link.session.context
+                    if (pn_link.is_sender and
+                            pn_link.name not in connection._sender_links):
+                        LOG.debug("Remotely initiated Sender needs init")
+                        link = session.request_sender(pn_link)
+                        connection._sender_links[pn_link.name] = link
+                    elif (pn_link.is_receiver and
+                          pn_link.name not in connection._receiver_links):
+                        LOG.debug("Remotely initiated Receiver needs init")
+                        link = session.request_receiver(pn_link)
+                        connection._receiver_links[pn_link.name] = link
+                pn_link.context._process_remote_state()
+                return True
+            elif pn_event.type == proton.Event.LINK_LOCAL_STATE:
+                pn_link = pn_event.link
+                pn_link.context._process_local_state()
+            elif pn_event.type == proton.Event.LINK_FLOW:
+                pn_link = pn_event.link
+                pn_link.context._process_credit()
+            elif pn_event.type == proton.Event.DELIVERY:
+                pn_link = pn_event.link
+                pn_delivery = pn_event.delivery
+                pn_link.context._process_delivery(pn_delivery)
+            else:
+                return False  # unknown
+            return True
+
     # endpoint methods:
     @property
     def _endpoint_state(self):
         return self._pn_link.state
 
-    def _ep_error(self):
-        super(_Link, self)._ep_error()
+    def _ep_error(self, error):
+        super(_Link, self)._ep_error(error)
         self._failed = True
-        self._link_failed("Endpoint protocol error.")
+        self._link_failed("Endpoint protocol error: %s" % error)
 
 
 def _get_remote_settle_modes(pn_link):
@@ -341,7 +424,8 @@ class SenderLink(_Link):
             proton.Disposition.MODIFIED: SenderLink.MODIFIED,
         }
 
-        LOG.debug("Processing delivery, tag=%s", str(pn_delivery.tag))
+        LOG.debug("Processing send delivery, tag=%s",
+                  str(pn_delivery.tag))
         if pn_delivery.tag in self._send_requests:
             if pn_delivery.settled:  # remote has finished
                 LOG.debug("Remote has settled a sent msg")
@@ -375,6 +459,7 @@ class SenderLink(_Link):
 
     def _process_credit(self):
         # check if any pending deliveries are now writable:
+        LOG.debug("credit event, link=%s", self.name)
         pn_delivery = self._pn_link.current
         while (self._pending_sends and
                pn_delivery and pn_delivery.writable):
@@ -548,6 +633,8 @@ class ReceiverLink(_Link):
 
     def _process_delivery(self, pn_delivery):
         """Check if the delivery can be processed."""
+        LOG.debug("Processing receive delivery, tag=%s",
+                  str(pn_delivery.tag))
         if pn_delivery.readable and not pn_delivery.partial:
             LOG.debug("Receive delivery readable")
             data = self._pn_link.recv(pn_delivery.pending)
@@ -667,6 +754,55 @@ class _SessionProxy(Endpoint):
             self._pn_session.free()
             self._pn_session = None
             self._connection = None
+
+    # Proton's event model was changed after 0.7
+    if (_PROTON_VERSION >= (0, 8)):
+        _endpoint_event_map = {
+            proton.Event.SESSION_REMOTE_OPEN: Endpoint.REMOTE_OPENED,
+            proton.Event.SESSION_REMOTE_CLOSE: Endpoint.REMOTE_CLOSED,
+            proton.Event.SESSION_OPEN: Endpoint.LOCAL_OPENED,
+            proton.Event.SESSION_CLOSE: Endpoint.LOCAL_CLOSED}
+
+        @staticmethod
+        def _handle_proton_event(pn_event, connection):
+            ep_event = _SessionProxy._endpoint_event_map.get(pn_event.type)
+            if ep_event is not None:
+                pn_session = pn_event.context
+                pn_session.context._process_endpoint_event(ep_event)
+            elif pn_event.type == proton.Event.SESSION_INIT:
+                # create a new session if requested by remote:
+                pn_session = pn_event.context
+                c = hasattr(pn_session, 'context') and pn_session.context
+                if not c:
+                    LOG.debug("Opening remotely initiated session")
+                    name = "session-%d" % connection._remote_session_id
+                    connection._remote_session_id += 1
+                    _SessionProxy(name, connection, pn_session)
+            elif pn_event.type == proton.Event.SESSION_FINAL:
+                LOG.debug("Session finalized: %s", pn_event.context)
+            else:
+                return False  # unknown
+            return True  # handled
+    elif hasattr(proton.Event, "SESSION_REMOTE_STATE"):
+        # 0.7 proton event model
+        @staticmethod
+        def _handle_proton_event(pn_event, connection):
+            if pn_event.type == proton.Event.SESSION_REMOTE_STATE:
+                pn_session = pn_event.session
+                # create a new session if requested by remote:
+                c = hasattr(pn_session, 'context') and pn_session.context
+                if not c:
+                    LOG.debug("Opening remotely initiated session")
+                    name = "session-%d" % connection._remote_session_id
+                    connection._remote_session_id += 1
+                    _SessionProxy(name, connection, pn_session)
+                pn_session.context._process_remote_state()
+            elif pn_event.type == proton.Event.SESSION_LOCAL_STATE:
+                pn_session = pn_event.session
+                pn_session.context._process_local_state()
+            else:
+                return False  # unknown
+            return True  # handled
 
     @property
     def _endpoint_state(self):
