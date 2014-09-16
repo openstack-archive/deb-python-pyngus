@@ -3,6 +3,10 @@ Known Bugs:
 
 None.
 
+Release 1.1.1 Notes:
+--------------------
+Fixed: provide access to the remote's advertised settle modes.
+
 Release 1.1.0 Notes:
 --------------------
 Added: Gordon Sim added support for configuring sender settle modes.
