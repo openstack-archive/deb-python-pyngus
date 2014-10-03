@@ -105,8 +105,9 @@ class _Link(Endpoint):
         return self._connection
 
     def open(self):
-        LOG.debug("Opening the link.")
-        self._pn_link.open()
+        if self._pn_link.state & proton.Endpoint.LOCAL_UNINIT:
+            LOG.debug("Opening the link.")
+            self._pn_link.open()
 
     def _get_user_context(self):
         return self._user_context
@@ -139,10 +140,11 @@ class _Link(Endpoint):
             return self._pn_link.remote_target.address
 
     def close(self, pn_condition=None):
-        LOG.debug("Closing the link.")
-        if pn_condition:
-            self._pn_link.condition = pn_condition
-        self._pn_link.close()
+        if self._pn_link.state & proton.Endpoint.LOCAL_ACTIVE:
+            LOG.debug("Closing the link.")
+            if pn_condition:
+                self._pn_link.condition = pn_condition
+            self._pn_link.close()
 
     @property
     def active(self):
@@ -333,6 +335,13 @@ class SenderLink(_Link):
     RELEASED = 3
     MODIFIED = 4
 
+    _DISPOSITION_STATE_MAP = {
+        proton.Disposition.ACCEPTED: ACCEPTED,
+        proton.Disposition.REJECTED: REJECTED,
+        proton.Disposition.RELEASED: RELEASED,
+        proton.Disposition.MODIFIED: MODIFIED,
+    }
+
     class _SendRequest(object):
         """Tracks sending a single message."""
         def __init__(self, link, tag, message, callback, handle, deadline):
@@ -417,20 +426,16 @@ class SenderLink(_Link):
 
     def _process_delivery(self, pn_delivery):
         """Check if the delivery can be processed."""
-        _disposition_state_map = {
-            proton.Disposition.ACCEPTED: SenderLink.ACCEPTED,
-            proton.Disposition.REJECTED: SenderLink.REJECTED,
-            proton.Disposition.RELEASED: SenderLink.RELEASED,
-            proton.Disposition.MODIFIED: SenderLink.MODIFIED,
-        }
 
         LOG.debug("Processing send delivery, tag=%s",
                   str(pn_delivery.tag))
         if pn_delivery.tag in self._send_requests:
-            if pn_delivery.settled:  # remote has finished
-                LOG.debug("Remote has settled a sent msg")
-                state = _disposition_state_map.get(pn_delivery.remote_state,
-                                                   self.UNKNOWN)
+            if pn_delivery.settled or pn_delivery.remote_state:
+                # remote has reached a 'terminal state'
+                LOG.debug("Remote has processed a sent msg")
+                outcome = pn_delivery.remote_state
+                state = SenderLink._DISPOSITION_STATE_MAP.get(outcome,
+                                                              self.UNKNOWN)
                 pn_disposition = pn_delivery.remote
                 info = {}
                 if state == SenderLink.REJECTED:
@@ -720,7 +725,8 @@ class _SessionProxy(Endpoint):
         pn_session.context = self
 
     def open(self):
-        self._pn_session.open()
+        if self._pn_session.state & proton.Endpoint.LOCAL_UNINIT:
+            self._pn_session.open()
 
     def new_sender(self, name):
         """Create a new sender link."""

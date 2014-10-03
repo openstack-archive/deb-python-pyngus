@@ -255,7 +255,8 @@ class Connection(Endpoint):
                             doc=_uc_docstr)
 
     def open(self):
-        self._pn_connection.open()
+        if self._pn_connection.state & proton.Endpoint.LOCAL_UNINIT:
+            self._pn_connection.open()
 
     def close(self, pn_condition=None):
         for link in self._sender_links.itervalues():
@@ -264,7 +265,8 @@ class Connection(Endpoint):
             link.close(pn_condition)
         if pn_condition:
             self._pn_connection.condition = pn_condition
-        self._pn_connection.close()
+        if self._pn_connection.state & proton.Endpoint.LOCAL_ACTIVE:
+            self._pn_connection.close()
 
     @property
     def active(self):

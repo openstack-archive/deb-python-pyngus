@@ -90,7 +90,6 @@ class Endpoint(object):
         REMOTE_CLOSED: (STATE_CLOSED, lambda s: s._ep_closed())
     }
     _FSM[STATE_CLOSED] = {
-        LOCAL_CLOSED: (STATE_CLOSED, None),  # ignore redundant closes
         REMOTE_CLOSED: (STATE_CLOSED, None)
     }
     _FSM[STATE_ERROR] = {  # terminal state

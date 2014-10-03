@@ -182,6 +182,19 @@ class APITest(common.Test):
         assert sl_handler.remote_closed_ct == 0
         assert rl_handler.closed_ct == 1
 
+    def test_pipeline_close(self):
+        sender, receiver = self._setup_sender_sync()
+        sl_handler = sender.user_context
+        rl_handler = receiver.user_context
+        sender.close()
+        self.conn1.close()
+        self.process_connections()
+        receiver.close()
+        self.conn2.close()
+        self.process_connections()
+        assert sl_handler.closed_ct == 1
+        assert rl_handler.closed_ct == 1
+
     def test_sender_close_cond_sync(self):
         sender, receiver = self._setup_sender_sync()
         rl_handler = receiver.user_context
