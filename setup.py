@@ -19,8 +19,10 @@
 #
 from setuptools import setup
 
+_VERSION = "0.0.0"   # NOTE: update __init__.py too!
+
 setup(name="pyngus",
-      version="0.0.0",
+      version=_VERSION,
       author="kgiusti",
       author_email="kgiusti@apache.org",
       packages=["pyngus"],
