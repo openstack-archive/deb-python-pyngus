@@ -641,8 +641,8 @@ class Connection(Endpoint):
         _endpoint_event_map = {
             proton.Event.CONNECTION_REMOTE_OPEN: Endpoint.REMOTE_OPENED,
             proton.Event.CONNECTION_REMOTE_CLOSE: Endpoint.REMOTE_CLOSED,
-            proton.Event.CONNECTION_OPEN: Endpoint.LOCAL_OPENED,
-            proton.Event.CONNECTION_CLOSE: Endpoint.LOCAL_CLOSED}
+            proton.Event.CONNECTION_LOCAL_OPEN: Endpoint.LOCAL_OPENED,
+            proton.Event.CONNECTION_LOCAL_CLOSE: Endpoint.LOCAL_CLOSED}
 
         def _handle_proton_event(self, pn_event):
             ep_event = Connection._endpoint_event_map.get(pn_event.type)

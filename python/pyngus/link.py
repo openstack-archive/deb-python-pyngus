@@ -204,8 +204,8 @@ class _Link(Endpoint):
         _endpoint_event_map = {
             proton.Event.LINK_REMOTE_OPEN: Endpoint.REMOTE_OPENED,
             proton.Event.LINK_REMOTE_CLOSE: Endpoint.REMOTE_CLOSED,
-            proton.Event.LINK_OPEN: Endpoint.LOCAL_OPENED,
-            proton.Event.LINK_CLOSE: Endpoint.LOCAL_CLOSED}
+            proton.Event.LINK_LOCAL_OPEN: Endpoint.LOCAL_OPENED,
+            proton.Event.LINK_LOCAL_CLOSE: Endpoint.LOCAL_CLOSED}
 
         @staticmethod
         def _handle_proton_event(pn_event, connection):
@@ -766,8 +766,8 @@ class _SessionProxy(Endpoint):
         _endpoint_event_map = {
             proton.Event.SESSION_REMOTE_OPEN: Endpoint.REMOTE_OPENED,
             proton.Event.SESSION_REMOTE_CLOSE: Endpoint.REMOTE_CLOSED,
-            proton.Event.SESSION_OPEN: Endpoint.LOCAL_OPENED,
-            proton.Event.SESSION_CLOSE: Endpoint.LOCAL_CLOSED}
+            proton.Event.SESSION_LOCAL_OPEN: Endpoint.LOCAL_OPENED,
+            proton.Event.SESSION_LOCAL_CLOSE: Endpoint.LOCAL_CLOSED}
 
         @staticmethod
         def _handle_proton_event(pn_event, connection):
