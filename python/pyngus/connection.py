@@ -27,9 +27,13 @@ import time
 import warnings
 
 from pyngus.endpoint import Endpoint
+from pyngus.link import _Link
 from pyngus.link import _SessionProxy
 
 LOG = logging.getLogger(__name__)
+
+_PROTON_VERSION = (int(getattr(proton, "VERSION_MAJOR", 0)),
+                   int(getattr(proton, "VERSION_MINOR", 0)))
 
 
 class ConnectionEventHandler(object):
@@ -251,7 +255,8 @@ class Connection(Endpoint):
                             doc=_uc_docstr)
 
     def open(self):
-        self._pn_connection.open()
+        if self._pn_connection.state & proton.Endpoint.LOCAL_UNINIT:
+            self._pn_connection.open()
 
     def close(self, pn_condition=None):
         for link in self._sender_links.itervalues():
@@ -260,7 +265,8 @@ class Connection(Endpoint):
             link.close(pn_condition)
         if pn_condition:
             self._pn_connection.condition = pn_condition
-        self._pn_connection.close()
+        if self._pn_connection.state & proton.Endpoint.LOCAL_ACTIVE:
+            self._pn_connection.close()
 
     @property
     def active(self):
@@ -283,9 +289,10 @@ class Connection(Endpoint):
         self._pn_transport.unbind()
         self._pn_transport = None
         self._pn_connection = None
-        # memory leak: drain the collector before releasing it
-        while self._pn_collector.peek():
-            self._pn_collector.pop()
+        if _PROTON_VERSION < (0, 8):
+            # memory leak: drain the collector before releasing it
+            while self._pn_collector.peek():
+                self._pn_collector.pop()
         self._pn_collector = None
 
     _REMOTE_REQ = (proton.Endpoint.LOCAL_UNINIT
@@ -339,71 +346,26 @@ class Connection(Endpoint):
             # process events from proton:
             pn_event = self._pn_collector.peek()
             while pn_event:
-                if pn_event.type == proton.Event.CONNECTION_REMOTE_STATE:
-                    self.process_remote_state()
-
-                elif pn_event.type == proton.Event.CONNECTION_LOCAL_STATE:
-                    self.process_local_state()
-
-                elif pn_event.type == proton.Event.SESSION_REMOTE_STATE:
-                    pn_session = pn_event.session
-                    # create a new session if requested by remote:
-                    c = hasattr(pn_session, 'context') and pn_session.context
-                    if ((not c) and
-                            (pn_session.state & proton.Endpoint.LOCAL_UNINIT)):
-                        LOG.debug("Opening remotely initiated session")
-                        name = "session-%d" % self._remote_session_id
-                        self._remote_session_id += 1
-                        session = _SessionProxy(name, self, pn_session)
-                    pn_session.context.process_remote_state()
-
-                elif pn_event.type == proton.Event.SESSION_LOCAL_STATE:
-                    pn_session = pn_event.session
-                    session = pn_session.context
-                    if session:
-                        session.process_local_state()
-
-                elif pn_event.type == proton.Event.LINK_REMOTE_STATE:
-                    pn_link = pn_event.link
-                    # create a new link if requested by remote:
-                    c = hasattr(pn_link, 'context') and pn_link.context
-                    if ((not c) and
-                            (pn_link.state & proton.Endpoint.LOCAL_UNINIT)):
-                        session = pn_link.session.context
-                        if (pn_link.is_sender and
-                                pn_link.name not in self._sender_links):
-                            LOG.debug("Remotely initiated Sender needs init")
-                            link = session.request_sender(pn_link)
-                            self._sender_links[pn_link.name] = link
-                        elif (pn_link.is_receiver and
-                              pn_link.name not in self._receiver_links):
-                            LOG.debug("Remotely initiated Receiver needs init")
-                            link = session.request_receiver(pn_link)
-                            self._receiver_links[pn_link.name] = link
-                    pn_link.context.process_remote_state()
-
-                elif pn_event.type == proton.Event.LINK_LOCAL_STATE:
-                    pn_link = pn_event.link
-                    link = pn_link.context
-                    if link:
-                        link.process_local_state()
-
-                elif pn_event.type == proton.Event.DELIVERY:
-                    link = pn_event.link.context
-                    pn_delivery = pn_event.delivery
-                    link._process_delivery(pn_delivery)
-
-                elif pn_event.type == proton.Event.LINK_FLOW:
-                    link = pn_event.link.context
-                    link._process_credit()
-
+                if self._handle_proton_event(pn_event):
+                    pass
+                elif _SessionProxy._handle_proton_event(pn_event, self):
+                    pass
+                elif _Link._handle_proton_event(pn_event, self):
+                    pass
                 self._pn_collector.pop()
                 pn_event = self._pn_collector.peek()
 
-            # invoked closed callback after endpoint has fully closed and all
-            # pending I/O has completed:
-            if (self._endpoint_state == self._CLOSED and
+            # re-check for connection failure after processing all pending
+            # engine events:
+            if self._error:
+                if self._handler:
+                    self._handler.connection_failed(self, self._error)
+                    # nag application until connection is destroyed
+                    self._next_deadline = now
+            elif (self._endpoint_state == self._CLOSED and
                     self._read_done and self._write_done):
+                # invoke closed callback after endpoint has fully closed and
+                # all pending I/O has completed:
                 if self._handler:
                     self._handler.connection_closed(self)
 
@@ -589,7 +551,7 @@ class Connection(Endpoint):
         if name in self._receiver_links:
             del self._receiver_links[name]
 
-    def _connection_failed(self, error):
+    def _connection_failed(self, error="Error not specified!"):
         """Clean up after connection failure detected."""
         if not self._error:
             LOG.error("Connection failed: %s", str(error))
@@ -674,6 +636,40 @@ class Connection(Endpoint):
                     cb()
         return self._timers_heap[0] if self._timers_heap else 0
 
+    # Proton's event model was changed after 0.7
+    if (_PROTON_VERSION >= (0, 8)):
+        _endpoint_event_map = {
+            proton.Event.CONNECTION_REMOTE_OPEN: Endpoint.REMOTE_OPENED,
+            proton.Event.CONNECTION_REMOTE_CLOSE: Endpoint.REMOTE_CLOSED,
+            proton.Event.CONNECTION_LOCAL_OPEN: Endpoint.LOCAL_OPENED,
+            proton.Event.CONNECTION_LOCAL_CLOSE: Endpoint.LOCAL_CLOSED}
+
+        def _handle_proton_event(self, pn_event):
+            ep_event = Connection._endpoint_event_map.get(pn_event.type)
+            if ep_event is not None:
+                self._process_endpoint_event(ep_event)
+            elif pn_event.type == proton.Event.CONNECTION_INIT:
+                LOG.debug("Connection created: %s", pn_event.context)
+            elif pn_event.type == proton.Event.CONNECTION_FINAL:
+                LOG.error("Connection finalized: %s", pn_event.context)
+            elif pn_event.type == proton.Event.TRANSPORT_ERROR:
+                self._connection_failed(str(self._pn_transport.condition))
+            else:
+                return False  # unknown
+            return True  # handled
+    elif hasattr(proton.Event, "CONNECTION_LOCAL_STATE"):
+        # 0.7 proton event model
+        def _handle_proton_event(self, pn_event):
+            if pn_event.type == proton.Event.CONNECTION_LOCAL_STATE:
+                self._process_local_state()
+            elif pn_event.type == proton.Event.CONNECTION_REMOTE_STATE:
+                self._process_remote_state()
+            else:
+                return False  # unknown
+            return True  # handled
+    else:
+        raise Exception("The installed version of Proton is not supported.")
+
     # endpoint state machine actions:
 
     def _ep_active(self):
@@ -689,7 +685,7 @@ class Connection(Endpoint):
             cond = self._pn_connection.remote_condition
             self._handler.connection_remote_closed(self, cond)
 
-    def _ep_error(self):
+    def _ep_error(self, error):
         """The endpoint state machine failed due to protocol error."""
-        super(Connection, self)._ep_error()
+        super(Connection, self)._ep_error(error)
         self._connection_failed("Protocol error occurred.")

@@ -20,10 +20,14 @@
 import gc
 import time
 
+import proton
 import pyngus
 
 
 class Test(object):
+
+    PROTON_VERSION = (int(getattr(proton, "VERSION_MAJOR", 0)),
+                      int(getattr(proton, "VERSION_MINOR", 0)))
 
     def __init__(self, name):
         self.name = name
