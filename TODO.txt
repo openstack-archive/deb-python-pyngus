@@ -3,6 +3,14 @@ Known Bugs:
 
 None.
 
+Release 1.2.0 Notes:
+--------------------
+
+0352dc9 fix proton rename of local endpoint events
+b96c91a Add VERSION tuple
+b94bb41 bugfixes: prevent redundant open/closes, complete send on terminal disposition or settled
+373d46d Add support for Proton 0.8
+
 Release 1.1.1 Notes:
 --------------------
 Fixed: provide access to the remote's advertised settle modes.

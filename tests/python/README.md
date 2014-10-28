@@ -38,7 +38,13 @@ To run, invoke it using the *time* command.  Example:
 
 ## Historical Results ##
 
+
 ### Lenovo T530 ###
+
+    1.2.0 + Proton 0.7:
+    real   3m28.831s
+    user   3m28.154s
+    sys    0m0.077s
 
     master @ 7cc6f77b781916ee679d36e8fd1d1bcf77760353 (Proton 0.7 RC4)
     real   2m1.102s
