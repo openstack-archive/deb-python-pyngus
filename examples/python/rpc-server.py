@@ -347,8 +347,8 @@ def main(argv=None):
     try:
         my_socket.bind((host, port))
         my_socket.listen(10)
-    except socket.error, e:
-        if e[0] != errno.EINPROGRESS:
+    except socket.error as e:
+        if e.errno != errno.EINPROGRESS:
             raise
 
     # create an AMQP container that will 'provide' the RPC service

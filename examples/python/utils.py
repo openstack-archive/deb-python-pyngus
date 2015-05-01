@@ -50,8 +50,8 @@ def connect_socket(host, port, blocking=True):
         my_socket.setblocking(0)
     try:
         my_socket.connect(addr[0][4])
-    except socket.error, e:
-        if e[0] != errno.EINPROGRESS:
+    except socket.error as e:
+        if e.errno != errno.EINPROGRESS:
             raise
     return my_socket
 
@@ -67,8 +67,8 @@ def server_socket(host, port, backlog=10):
     try:
         my_socket.bind(addr[0][4])
         my_socket.listen(backlog)
-    except socket.error, e:
-        if e[0] != errno.EINPROGRESS:
+    except socket.error as e:
+        if e.errno != errno.EINPROGRESS:
             raise
     return my_socket
 

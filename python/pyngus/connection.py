@@ -259,9 +259,9 @@ class Connection(Endpoint):
             self._pn_connection.open()
 
     def close(self, pn_condition=None):
-        for link in self._sender_links.itervalues():
+        for link in list(self._sender_links.values()):
             link.close(pn_condition)
-        for link in self._receiver_links.itervalues():
+        for link in list(self._receiver_links.values()):
             link.close(pn_condition)
         if pn_condition:
             self._pn_connection.condition = pn_condition
@@ -689,3 +689,17 @@ class Connection(Endpoint):
         """The endpoint state machine failed due to protocol error."""
         super(Connection, self)._ep_error(error)
         self._connection_failed("Protocol error occurred.")
+
+    # order by name
+
+    def __lt__(self, other):
+        return self.name < other.name
+
+    def __le__(self, other):
+        return self < other or self.name == other.name
+
+    def __gt__(self, other):
+        return self.name > other.name
+
+    def __ge__(self, other):
+        return self > other or self.name == other.name

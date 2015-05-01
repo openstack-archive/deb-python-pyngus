@@ -349,8 +349,8 @@ def main(argv=None):
     my_socket.setblocking(0)  # 0=non-blocking
     try:
         my_socket.connect(addr[0][4])
-    except socket.error, e:
-        if e[0] != errno.EINPROGRESS:
+    except socket.error as e:
+        if e.errno != errno.EINPROGRESS:
             raise
 
     # create AMQP container, connection, sender and receiver

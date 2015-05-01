@@ -29,13 +29,18 @@ from getopt import GetoptError
 from logging import getLogger, StreamHandler, Formatter, Filter, \
     WARN, DEBUG, ERROR
 
+if sys.version_info[0] == 2:
+    CLASS_TYPES = (type, types.ClassType)
+else:
+    CLASS_TYPES = (type,)
+
 levels = {
   "DEBUG": DEBUG,
   "WARN": WARN,
   "ERROR": ERROR
   }
 
-sorted_levels = [(v, k) for k, v in levels.items()]
+sorted_levels = [(v, k) for k, v in list(levels.items())]
 sorted_levels.sort()
 sorted_levels = [v for k, v in sorted_levels]
 
@@ -537,7 +542,7 @@ class FunctionScanner(PatternMatcher):
 class ClassScanner(PatternMatcher):
 
   def inspect(self, obj):
-    return type(obj) in (types.ClassType, types.TypeType) and self.matches(obj.__name__)
+    return type(obj) in CLASS_TYPES and self.matches(obj.__name__)
 
   def descend(self, cls):
     # the None is required for older versions of python
@@ -549,13 +554,20 @@ class ClassScanner(PatternMatcher):
     for name in names:
       obj = getattr(cls, name)
       t = type(obj)
-      if t == types.MethodType and name.startswith("test"):
+      if hasattr(obj, '__call__') and name.startswith("test"):
         yield MethodTest(cls, name)
 
 class ModuleScanner:
 
+  def __init__(self, modules):
+    self._modules = modules
+
   def inspect(self, obj):
-    return type(obj) == types.ModuleType
+    if type(obj) == types.ModuleType:
+        return any([obj.__name__.startswith(m) for m in self._modules])
+    else:
+        return False
+    return type(obj) == types.ModuleType and obj.__name__.startswith("unit_test")
 
   def descend(self, obj):
     names = dir(obj)
@@ -569,17 +581,20 @@ class ModuleScanner:
 
 class Harness:
 
-  def __init__(self):
+  def __init__(self, modules):
     self.scanners = [
-      ModuleScanner(),
+      ModuleScanner(modules),
       ClassScanner("*Test", "*Tests", "*TestCase"),
       FunctionScanner("test_*")
       ]
     self.tests = []
     self.scanned = []
+    self._modules = modules
 
-  def scan(self, *roots):
-    objects = list(roots)
+  def scan(self):
+    objects = []
+    for name in self._modules:
+      objects.append(__import__(name, None, None, ["dummy"]))
 
     while objects:
       obj = objects.pop(0)
@@ -594,10 +609,8 @@ class Harness:
 modules = opts.modules
 if not modules:
   modules.extend(["unit_tests"])
-h = Harness()
-for name in modules:
-  m = __import__(name, None, None, ["dummy"])
-  h.scan(m)
+h = Harness(modules)
+h.scan()
 
 filtered = [t for t in h.tests if is_included(t.name())]
 ignored = [t for t in h.tests if is_ignored(t.name())]

@@ -17,6 +17,6 @@
 # under the License.
 #
 
-import unit_tests.container
-import unit_tests.connection
-import unit_tests.link
+from . import container
+from . import connection
+from . import link

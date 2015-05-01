@@ -49,7 +49,7 @@ def read_socket_input(connection, socket_obj):
         raise  # caller must handle
     except socket.error as e:
         LOG.debug("Socket error exception %s", str(e))
-        err = e.args[0]
+        err = e.errno
         # ignore non-fatal errors
         if (err != errno.EAGAIN and
                 err != errno.EWOULDBLOCK and
@@ -92,7 +92,7 @@ def write_socket_output(connection, socket_obj):
         raise  # caller must handle
     except socket.error as e:
         LOG.debug("Socket error exception %s", str(e))
-        err = e.args[0]
+        err = e.errno
         # ignore non-fatal errors
         if (err != errno.EAGAIN and
                 err != errno.EWOULDBLOCK and
