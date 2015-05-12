@@ -69,8 +69,6 @@ class SocketConnection(pyngus.ConnectionEventHandler):
         self.connection = container.create_connection(name, self,
                                                       conn_properties)
         self.connection.user_context = self
-        self.connection.sasl.mechanisms("ANONYMOUS")
-        self.connection.sasl.server()
         self.connection.open()
         self.done = False
 
@@ -396,7 +394,7 @@ def main(argv=None):
                 client_socket, client_address = my_socket.accept()
                 name = uuid.uuid4().hex
                 assert name not in socket_connections
-                conn_properties = {}
+                conn_properties = {'x-server': True}
                 if opts.idle_timeout:
                     conn_properties["idle-time-out"] = opts.idle_timeout
                 if opts.trace:

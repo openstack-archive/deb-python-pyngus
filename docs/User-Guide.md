@@ -228,11 +228,27 @@ case of TCP).  Parameters:
      heartbeat generation by the peer, if supported.
    * "x-trace-protocol" - boolean, if True, enable debug dumps of the
      AMQP wire traffic.
+   * "x-server" - boolean, set this to True to configure the
+     connection as a server side connection.  This should be set True
+     if the connection was remotely initiated (e.g. accept on a
+     listening socket).  If the connection was locally initiated
+     (e.g. by calling connect()), then this value should be set to
+     False.  This setting is used by authentication and encryption to
+     configure the connection's role.  The default value is False for
+     client mode.
+   * "x-username" - string, the client's username to use when
+     authenticating with a server.
+   * "x-password" - string, the client's password, used for
+     authentication.
+   * "x-require-auth" - boolean, reject remotely-initiated client
+     connections that fail to provide valid credentials for
+     authentication.
+   * "x-sasl-mechs" - string, a space-separated list of mechanisms
+     that are allowed for authentication.  Defaults to "ANONYMOUS"
    * "x-ssl-ca-file" - string, path to a PEM file containing the
      certificates of the trusted Certificate Authorities that will be
      used to check the signature of the peer's certificate.
-   * "x-ssl-server" - boolean, if True, the Connection acts as a SSL
-     server (default False - use Client mode)
+   * "x-ssl-server" - __DEPRECATED__ use x-server instead.
    * "x-ssl-identity" - tuple, contains self-identifying certificate
      information which will be presented to the peer.  The first item
      in the tuple is the path to the certificate file (PEM format).
@@ -259,9 +275,9 @@ case of TCP).  Parameters:
      necessary.  A DNS host name is required to authenticate peer's
      certificate (see x-ssl-verify-mode).
    * "x-ssl-allow-cleartext" - boolean, allows clients to connect
-      without using SSL (eg, plain TCP). Used by a server that will
-      accept clients requesting either trusted or untrusted
-      connections.
+     without using SSL (eg, plain TCP). Used by a server that will
+     accept clients requesting either trusted or untrusted
+     connections.
 
 `Container.name()`
 

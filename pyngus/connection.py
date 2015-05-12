@@ -70,9 +70,9 @@ class ConnectionEventHandler(object):
         # reject_receiver to reject it.
         LOG.debug("receiver_requested (ignored)")
 
-    # TODO(kgiusti) cleaner sasl support, esp. server side
+    # No longer supported by proton >= 0.10, so this method is deprecated
     def sasl_step(self, connection, pn_sasl):
-        """SASL exchange occurred."""
+        """DEPRECATED"""
         LOG.debug("sasl_step (ignored)")
 
     def sasl_done(self, connection, pn_sasl, result):
@@ -84,27 +84,46 @@ class Connection(Endpoint):
     """A Connection to a peer."""
     EOS = -1   # indicates 'I/O stream closed'
 
+    # set of all SASL connection configuration properties
+    _SASL_PROPS = set(['x-username', 'x-password', 'x-require-auth',
+                       'x-sasl-mechs'])
+
     def __init__(self, container, name, event_handler=None, properties=None):
         """Create a new connection from the Container
 
-        The following AMQP connection properties are supported:
-
-        hostname: string, target host name sent in Open frame.
+        properties: map, properties of the new connection. The following keys
+        and values are supported:
 
         idle-time-out: float, time in seconds before an idle link will be
         closed.
 
-        properties: map, connection properties sent to the peer.
+        hostname: string, the name of the host to which this connection is
+        being made, sent in the Open frame.
 
         max-frame-size: int, maximum acceptable frame size in bytes.
 
+        properties: map, proton connection properties sent to the peer.
+
         The following custom connection properties are supported:
 
-        x-trace-protocol: boolean, if true, dump sent and received frames to
-        stdout.
+        x-server: boolean, set this to True to configure the connection as a
+        server side connection.  This should be set True if the connection was
+        remotely initiated (e.g. accept on a listening socket).  If the
+        connection was locally initiated (e.g. by calling connect()), then this
+        value should be set to False.  This setting is used by authentication
+        and encryption to configure the connection's role.  The default value
+        is False for client mode.
 
-        x-ssl-server: boolean, if True connection acts as a SSL server (default
-        False - use Client mode)
+        x-username: string, the client's username to use when authenticating
+        with a server.
+
+        x-password: string, the client's password, used for authentication.
+
+        x-require-auth: boolean, reject remotely-initiated client connections
+        that fail to provide valid credentials for authentication.
+
+        x-sasl-mechs" - string, a space-separated list of mechanisms
+        that are allowed for authentication.  Defaults to "ANONYMOUS"
 
         x-ssl-identity: tuple, contains identifying certificate information
         which will be presented to the peer.  The first item in the tuple is
@@ -136,31 +155,43 @@ class Connection(Endpoint):
         x-ssl-allow-cleartext: boolean, Allows clients to connect without using
         SSL (eg, plain TCP). Used by a server that will accept clients
         requesting either trusted or untrusted connections.
+
+        x-trace-protocol: boolean, if true, dump sent and received frames to
+        stdout.
         """
         super(Connection, self).__init__(name)
         self._container = container
         self._handler = event_handler
+        self._properties = properties or {}
+        old_flag = self._properties.get('x-ssl-server', False)
+        self._server = self._properties.get('x-server', old_flag)
 
         self._pn_connection = proton.Connection()
         self._pn_connection.container = container.name
-        self._pn_transport = proton.Transport()
+        if (_PROTON_VERSION < (0, 9)):
+            self._pn_transport = proton.Transport()
+        else:
+            if self._server:
+                mode = proton.Transport.SERVER
+            else:
+                mode = proton.Transport.CLIENT
+            self._pn_transport = proton.Transport(mode)
         self._pn_transport.bind(self._pn_connection)
         self._pn_collector = proton.Collector()
         self._pn_connection.collect(self._pn_collector)
 
-        if properties:
-            if 'hostname' in properties:
-                self._pn_connection.hostname = properties['hostname']
-            secs = properties.get("idle-time-out")
-            if secs:
-                self._pn_transport.idle_timeout = secs
-            max_frame = properties.get("max-frame-size")
-            if max_frame:
-                self._pn_transport.max_frame_size = max_frame
-            if 'properties' in properties:
-                self._pn_connection.properties = properties["properties"]
-            if properties.get("x-trace-protocol"):
-                self._pn_transport.trace(proton.Transport.TRACE_FRM)
+        if 'hostname' in self._properties:
+            self._pn_connection.hostname = self._properties['hostname']
+        secs = self._properties.get("idle-time-out")
+        if secs:
+            self._pn_transport.idle_timeout = secs
+        max_frame = self._properties.get("max-frame-size")
+        if max_frame:
+            self._pn_transport.max_frame_size = max_frame
+        if 'properties' in self._properties:
+            self._pn_connection.properties = self._properties["properties"]
+        if self._properties.get("x-trace-protocol"):
+            self._pn_transport.trace(proton.Transport.TRACE_FRM)
 
         # indexed by link-name
         self._sender_links = {}    # SenderLink
@@ -176,9 +207,41 @@ class Connection(Endpoint):
         self._user_context = None
         self._in_process = False
         self._remote_session_id = 0
-        # TODO(kgiusti) sasl configuration and handling
+
         self._pn_sasl = None
         self._sasl_done = False
+
+        if (_PROTON_VERSION < (0, 10)):
+            # best effort map of 0.10 sasl config to pre-0.10 sasl
+            if self._SASL_PROPS.intersection(set(self._properties.keys())):
+                # SASL config specified, need to enable SASL
+                if self._server:
+                    self.pn_sasl.server()
+                    if 'x-require-auth' in self._properties:
+                        if not self._properties['x-require-auth']:
+                            if _PROTON_VERSION >= (0, 8):
+                                self.pn_sasl.allow_skip()
+                else:
+                    if 'x-username' in self._properties:
+                        self.pn_sasl.plain(self._properties['x-username'],
+                                           self._properties.get('x-password',
+                                                                ''))
+                    else:
+                        self.pn_sasl.client()
+                mechs = self._properties.get('x-sasl-mechs')
+                if mechs:
+                    self.pn_sasl.mechanisms(mechs)
+        else:
+            # new SASL configuration
+            if 'x-require-auth' in self._properties:
+                ra = self._properties['x-require-auth']
+                self._pn_transport.require_auth(ra)
+            if 'x-username' in self._properties:
+                self._pn_connection.user = self._properties['x-username']
+            if 'x-password' in self._properties:
+                self._pn_connection.password = self._properties['x-password']
+            if 'x-sasl-mechs' in self._properties:
+                self.pn_sasl.allowed_mechs(self._properties['x-sasl-mechs'])
 
         # intercept any SSL failures and cleanup resources before propagating
         # the exception:
@@ -227,18 +290,11 @@ class Connection(Endpoint):
             return self._pn_connection.remote_properties
         return None
 
-    # TODO(kgiusti) - think about server side use of sasl!
     @property
     def pn_sasl(self):
         if not self._pn_sasl:
             self._pn_sasl = self._pn_transport.sasl()
         return self._pn_sasl
-
-    @property
-    def sasl(self):
-        text = "sasl deprecated, use pn_sasl instead"
-        warnings.warn(DeprecationWarning(text))
-        return self.pn_sasl
 
     def pn_ssl(self):
         """Return the Proton SSL context for this Connection."""
@@ -319,21 +375,21 @@ class Connection(Endpoint):
             if self._pn_connection.state & proton.Endpoint.LOCAL_UNINIT:
                 return 0
 
-            # wait until SASL has authenticated
-            # TODO(kgiusti) Server-side SASL
-            if self._pn_sasl:
-                if self._pn_sasl.state not in (proton.SASL.STATE_PASS,
-                                               proton.SASL.STATE_FAIL):
-                    LOG.debug("SASL in progress. State=%s",
-                              str(self._pn_sasl.state))
-                    if self._handler:
-                        self._handler.sasl_step(self, self._pn_sasl)
-                    return self._next_deadline
+            if (_PROTON_VERSION < (0, 10)):
+                # wait until SASL has authenticated
+                if self._pn_sasl and not self._sasl_done:
+                    if self._pn_sasl.state not in (proton.SASL.STATE_PASS,
+                                                   proton.SASL.STATE_FAIL):
+                        LOG.debug("SASL in progress. State=%s",
+                                  str(self._pn_sasl.state))
+                        if self._handler:
+                            self._handler.sasl_step(self, self._pn_sasl)
+                        return self._next_deadline
 
-                if self._handler:
-                    self._handler.sasl_done(self, self._pn_sasl,
-                                            self._pn_sasl.outcome)
-                self._pn_sasl = None
+                    self._sasl_done = True
+                    if self._handler:
+                        self._handler.sasl_done(self, self._pn_sasl,
+                                                self._pn_sasl.outcome)
 
             # process timer events:
             timer_deadline = self._expire_timers(now)
@@ -651,7 +707,7 @@ class Connection(Endpoint):
             elif pn_event.type == proton.Event.CONNECTION_INIT:
                 LOG.debug("Connection created: %s", pn_event.context)
             elif pn_event.type == proton.Event.CONNECTION_FINAL:
-                LOG.error("Connection finalized: %s", pn_event.context)
+                LOG.debug("Connection finalized: %s", pn_event.context)
             elif pn_event.type == proton.Event.TRANSPORT_ERROR:
                 self._connection_failed(str(self._pn_transport.condition))
             else:
@@ -676,6 +732,12 @@ class Connection(Endpoint):
         """Both ends of the Endpoint have become active."""
         LOG.debug("Connection is up")
         if self._handler:
+            if (_PROTON_VERSION >= (0, 10)):
+                # simulate the old sasl_done callback
+                if self._pn_sasl and not self._sasl_done:
+                    self._sasl_done = True
+                    self._handler.sasl_done(self, self._pn_sasl,
+                                            self._pn_sasl.outcome)
             self._handler.connection_active(self)
 
     def _ep_need_close(self):

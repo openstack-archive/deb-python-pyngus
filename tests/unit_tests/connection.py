@@ -230,34 +230,48 @@ class APITest(common.Test):
         c2.process(3)
 
     def test_sasl_callbacks(self):
-        """Verify access to the connection's SASL state."""
+        """Verify sasl_done() callback is invoked"""
+        if self.PROTON_VERSION >= (0, 10):
+            server_props = {'x-server': True,
+                            'x-sasl-mechs': 'ANONYMOUS'}
+            client_props = {'x-server': False,
+                            'x-username': 'user-foo',
+                            'x-password': 'pass-word',
+                            'x-sasl-mechs': 'ANONYMOUS PLAIN'}
+
+        else:
+            server_props = {'x-server': True,
+                            'x-require-auth': True,
+                            'x-sasl-mechs': 'PLAIN'}
+            client_props = {'x-server': False,
+                            'x-username': 'user-foo',
+                            'x-password': 'pass-word',
+                            'x-sasl-mechs': 'PLAIN'}
+
         class SaslCallbackServer(common.ConnCallback):
             def sasl_step(self, connection, pn_sasl):
+                self.sasl_step_ct += 1
                 creds = pn_sasl.recv()
                 if creds == "\x00user-foo\x00pass-word":
                     pn_sasl.done(pn_sasl.OK)
 
         c1_events = SaslCallbackServer()
-        c1 = self.container1.create_connection("c1", c1_events)
-        pn_sasl = c1.pn_sasl
-        assert pn_sasl
-        pn_sasl.mechanisms("PLAIN")
-        pn_sasl.server()
+        c1 = self.container1.create_connection("c1", c1_events,
+                                               properties=server_props)
 
         class SaslCallbackClient(common.ConnCallback):
             def sasl_done(self, connection, pn_sasl, result):
                 assert result == pn_sasl.OK
+                self.sasl_done_ct += 1
 
         c2_events = SaslCallbackClient()
-        c2 = self.container2.create_connection("c2", c2_events)
-        pn_sasl = c2.pn_sasl
-        assert pn_sasl
-        pn_sasl.plain("user-foo", "pass-word")
-
+        c2 = self.container2.create_connection("c2", c2_events,
+                                               properties=client_props)
         c1.open()
         c2.open()
         common.process_connections(c1, c2)
         assert c1.active and c2.active
+        assert c2_events.sasl_done_ct == 1, c2_events.sasl_done_ct
 
     def test_properties_idle_timeout(self):
         props = {"idle-time-out": 3}
