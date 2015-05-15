@@ -16,11 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 #
-from pyngus.container import Container
-from pyngus.connection import Connection, ConnectionEventHandler
-from pyngus.link import ReceiverLink, ReceiverEventHandler
-from pyngus.link import SenderLink, SenderEventHandler
-from pyngus.sockets import read_socket_input
-from pyngus.sockets import write_socket_output
 
-VERSION = (1, 2, 0)  # major, minor, fix
+from . import container
+from . import connection
+from . import link

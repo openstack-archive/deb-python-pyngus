@@ -36,7 +36,7 @@ class Container(object):
         self._properties = properties
 
     def destroy(self):
-        conns = self._connections.values()
+        conns = list(self._connections.values())
         for conn in conns:
             conn.destroy()
 
@@ -62,7 +62,7 @@ class Container(object):
         readers = []
         writers = []
         timer_heap = []
-        for c in self._connections.itervalues():
+        for c in iter(self._connections.values()):
             if c.needs_input > 0:
                 readers.append(c)
             if c.has_output > 0:

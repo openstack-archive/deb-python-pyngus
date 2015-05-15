@@ -1,7 +1,0 @@
-pep8>=1.4.5
-pyflakes>=0.7.3
-flake8>=2.1.0
-
-# This requires that qpid-proton-c-devel packages
-# are installed on your system:
-python-qpid-proton>=0.7,<0.8
