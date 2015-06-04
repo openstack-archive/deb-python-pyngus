@@ -21,6 +21,20 @@ from setuptools import setup
 
 _VERSION = "1.3.1"   # NOTE: update __init__.py too!
 
+# I hack, therefore I am (productive) Some distros (which will not be named)
+# don't use setup.py to install the proton python module.  In this case, pip
+# will not think proton is installed, and will attempt to install it,
+# overwriting the distro's installation.  To prevent this, don't set the
+# 'install_requires' if the proton python module is already installed
+#
+_dependencies = []
+try:
+    import proton
+except ImportError:
+    # this version of proton will download and install the proton shared
+    # library as well:
+    _dependencies = ['python-qpid-proton>=0.9,<0.10']
+
 
 setup(name="pyngus",
       version=_VERSION,
@@ -31,7 +45,7 @@ setup(name="pyngus",
       description="Callback API implemented over Proton",
       url="https://github.com/kgiusti/pyngus",
       license="Apache Software License",
-      install_requires=['python-qpid-proton>=0.9,<0.10'],
+      install_requires=_dependencies,
       classifiers=["License :: OSI Approved :: Apache Software License",
                    "Intended Audience :: Developers",
                    "Operating System :: OS Independent",
