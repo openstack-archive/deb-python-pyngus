@@ -20,7 +20,13 @@
 import gc
 import time
 
-from proton import VERSION_MAJOR, VERSION_MINOR
+try:
+    from proton import VERSION_MAJOR, VERSION_MINOR
+except ImportError:
+    # older proton did not export version info
+    VERSION_MAJOR = 0
+    VERSION_MINOR = 0
+
 import pyngus
 
 
