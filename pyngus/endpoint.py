@@ -157,6 +157,12 @@ class Endpoint(object):
             except IndexError:
                 LOG.debug("Endpoint %s: ignoring unexpected local event",
                           self._name)
+    else:
+        def _process_remote_state(self):
+            pass
+
+        def _process_local_state(self):
+            pass
 
     @property
     def _endpoint_state(self):

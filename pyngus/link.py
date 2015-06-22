@@ -193,7 +193,7 @@ class _Link(Endpoint):
         # if link not already closed:
         if self._endpoint_state & proton.Endpoint.REMOTE_ACTIVE:
             # simulate close received
-            self.process_remote_state()
+            self._process_remote_state()
         elif self._endpoint_state & proton.Endpoint.REMOTE_UNINIT:
             # locally created link, will never come up
             self._failed = True
