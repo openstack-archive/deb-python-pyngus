@@ -826,8 +826,9 @@ class CyrusTest(common.Test):
 
         # add a user 'user@proton', password 'password':
         self._conf_dir = tempfile.mkdtemp()
-        db = os.path.join(self._conf_dir,'proton.sasldb')
-        cmd = Template("echo password | saslpasswd2 -c -p -f ${db} -u proton user").substitute(db=db)
+        db = os.path.join(self._conf_dir, 'proton.sasldb')
+        _t = "echo password | saslpasswd2 -c -p -f ${db} -u proton user"
+        cmd = Template(_t).substitute(db=db)
         try:
             subprocess.call(args=cmd, shell=True)
         except:
@@ -836,7 +837,7 @@ class CyrusTest(common.Test):
             raise common.Skipped("saslpasswd2 not installed")
 
         # configure the SASL server:
-        conf = os.path.join(self._conf_dir,'proton-server.conf')
+        conf = os.path.join(self._conf_dir, 'proton-server.conf')
         t = Template("""sasldb_path: ${db}
 mech_list: EXTERNAL DIGEST-MD5 SCRAM-SHA-1 CRAM-MD5 PLAIN ANONYMOUS
 """)

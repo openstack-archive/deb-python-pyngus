@@ -243,9 +243,11 @@ class Connection(Endpoint):
                     self._pn_connection.user = self._properties['x-username']
                 if 'x-password' in self._properties:
                     self._init_sasl()
-                    self._pn_connection.password = self._properties['x-password']
+                    self._pn_connection.password = \
+                        self._properties['x-password']
                 if 'x-sasl-mechs' in self._properties:
-                    self.pn_sasl.allowed_mechs(self._properties['x-sasl-mechs'])
+                    self.pn_sasl.allowed_mechs(
+                        self._properties['x-sasl-mechs'])
 
         # intercept any SSL failures and cleanup resources before propagating
         # the exception:
