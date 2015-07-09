@@ -19,11 +19,16 @@
 from . import common
 # import logging
 import os
+import shutil
+import subprocess
+import tempfile
 import time
+from string import Template
 
 from proton import Condition
 from proton import Message
 from proton import SSLUnavailable
+from proton import SASL
 import pyngus
 
 
@@ -802,3 +807,90 @@ class APITest(common.Test):
         assert rl_handler.remote_closed_ct == 1
         error = rl_handler.remote_closed_error
         assert error.name == "reject"
+
+
+class CyrusTest(common.Test):
+    """A test class for SASL authentication tests using the Cyrus SASL library
+    """
+
+    def setup(self):
+        """Create a simple SASL configuration. This assumes saslpasswd2 is in
+        the OS path, otherwise the test will be skipped.
+        """
+        if not hasattr(SASL, "extended") or not SASL.extended():
+            raise common.Skipped("Cyrus SASL not supported")
+
+        super(CyrusTest, self).setup()
+        self.container1 = pyngus.Container("test-container-1")
+        self.container2 = pyngus.Container("test-container-2")
+
+        # add a user 'user@proton', password 'password':
+        self._conf_dir = tempfile.mkdtemp()
+        db = os.path.join(self._conf_dir,'proton.sasldb')
+        cmd = Template("echo password | saslpasswd2 -c -p -f ${db} -u proton user").substitute(db=db)
+        try:
+            subprocess.call(args=cmd, shell=True)
+        except:
+            shutil.rmtree(self._conf_dir, ignore_errors=True)
+            self._conf_dir = None
+            raise common.Skipped("saslpasswd2 not installed")
+
+        # configure the SASL server:
+        conf = os.path.join(self._conf_dir,'proton-server.conf')
+        t = Template("""sasldb_path: ${db}
+mech_list: EXTERNAL DIGEST-MD5 SCRAM-SHA-1 CRAM-MD5 PLAIN ANONYMOUS
+""")
+        with open(conf, 'w') as f:
+            f.write(t.substitute(db=db))
+
+        os.environ['PN_SASL_CONFIG_PATH'] = self._conf_dir
+
+    def teardown(self):
+        if self.container1:
+            self.container1.destroy()
+        if self.container2:
+            self.container2.destroy()
+        if self._conf_dir:
+            shutil.rmtree(self._conf_dir, ignore_errors=True)
+        super(CyrusTest, self).teardown()
+
+    def test_cyrus_sasl_ok(self):
+        server_props = {'x-server': True,
+                        'x-require-auth': True}
+        client_props = {'x-server': False,
+                        'x-username': 'user@proton',
+                        'x-password': 'password'}
+
+        c1_events = common.ConnCallback()
+        c1 = self.container1.create_connection("c1", c1_events,
+                                               properties=server_props)
+        c2_events = common.ConnCallback()
+        c2 = self.container2.create_connection("c2", c2_events,
+                                               properties=client_props)
+        c1.open()
+        c2.open()
+        common.process_connections(c1, c2)
+        assert c1.active and c2.active
+        assert c2_events.sasl_done_ct == 1, c2_events.sasl_done_ct
+
+    def test_cyrus_sasl_fail(self):
+        server_props = {'x-server': True,
+                        'x-require-auth': True}
+        client_props = {'x-server': False,
+                        'x-username': 'user@proton',
+                        'x-password': 'bad-password'}
+
+        c1_events = common.ConnCallback()
+        c1 = self.container1.create_connection("c1", c1_events,
+                                               properties=server_props)
+        c2_events = common.ConnCallback()
+        c2 = self.container2.create_connection("c2", c2_events,
+                                               properties=client_props)
+        c1.open()
+        c2.open()
+        common.process_connections(c1, c2)
+        assert not c1.active, c1.active
+        assert c1_events.failed_ct == 1, c1_events.failed_ct
+        assert not c2.active, c2.active
+        assert c2_events.sasl_done_ct == 0, c2_events.sasl_done_ct
+        assert c2_events.failed_ct == 1, c2_events.failed_ct

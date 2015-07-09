@@ -142,15 +142,16 @@ class Connection(Endpoint):
             "verify-peer" (default) - most secure, requires peer to supply a
             certificate signed by a valid CA (see x-ssl-ca-file), and check
             the CN or SAN entry in the certificate against the expected
-            peer hostname (see x-ssl-peer-name)
+            peer hostname (see hostname and x-ssl-peer-name properties)
             "verify-cert" (default if no x-ssl-peer-name given) - like
             verify-peer, but skips the check of the peer hostname.
              Vulnerable to man-in-the-middle attack.
             "no-verify" - do not require the peer to provide a certificate.
             Results in a weaker encryption stream, and other vulnerabilities.
 
-        x-ssl-peer-name: string, DNS name of peer.  Required to authenticate
-        peer's certificate (see x-ssl-verify-mode).
+        x-ssl-peer-name: string, DNS name of peer.  Override the hostname used
+        to authenticate peer's certificate (see x-ssl-verify-mode).  The value
+        of the 'hostname' property is used if this property is not supplied.
 
         x-ssl-allow-cleartext: boolean, Allows clients to connect without using
         SSL (eg, plain TCP). Used by a server that will accept clients
@@ -160,6 +161,7 @@ class Connection(Endpoint):
         stdout.
         """
         super(Connection, self).__init__(name)
+        self._transport_bound = False
         self._container = container
         self._handler = event_handler
         self._properties = properties or {}
@@ -176,7 +178,6 @@ class Connection(Endpoint):
             else:
                 mode = proton.Transport.CLIENT
             self._pn_transport = proton.Transport(mode)
-        self._pn_transport.bind(self._pn_connection)
         self._pn_collector = proton.Collector()
         self._pn_connection.collect(self._pn_collector)
 
@@ -211,10 +212,10 @@ class Connection(Endpoint):
         self._pn_sasl = None
         self._sasl_done = False
 
-        if (_PROTON_VERSION < (0, 10)):
-            # best effort map of 0.10 sasl config to pre-0.10 sasl
-            if self._SASL_PROPS.intersection(set(self._properties.keys())):
-                # SASL config specified, need to enable SASL
+        if self._SASL_PROPS.intersection(set(self._properties.keys())):
+            # SASL config specified, need to enable SASL
+            if (_PROTON_VERSION < (0, 10)):
+                # best effort map of 0.10 sasl config to pre-0.10 sasl
                 if self._server:
                     self.pn_sasl.server()
                     if 'x-require-auth' in self._properties:
@@ -231,17 +232,20 @@ class Connection(Endpoint):
                 mechs = self._properties.get('x-sasl-mechs')
                 if mechs:
                     self.pn_sasl.mechanisms(mechs)
-        else:
-            # new SASL configuration
-            if 'x-require-auth' in self._properties:
-                ra = self._properties['x-require-auth']
-                self._pn_transport.require_auth(ra)
-            if 'x-username' in self._properties:
-                self._pn_connection.user = self._properties['x-username']
-            if 'x-password' in self._properties:
-                self._pn_connection.password = self._properties['x-password']
-            if 'x-sasl-mechs' in self._properties:
-                self.pn_sasl.allowed_mechs(self._properties['x-sasl-mechs'])
+            else:
+                # new Proton SASL configuration
+                if 'x-require-auth' in self._properties:
+                    self._init_sasl()
+                    ra = self._properties['x-require-auth']
+                    self._pn_transport.require_auth(ra)
+                if 'x-username' in self._properties:
+                    self._init_sasl()
+                    self._pn_connection.user = self._properties['x-username']
+                if 'x-password' in self._properties:
+                    self._init_sasl()
+                    self._pn_connection.password = self._properties['x-password']
+                if 'x-sasl-mechs' in self._properties:
+                    self.pn_sasl.allowed_mechs(self._properties['x-sasl-mechs'])
 
         # intercept any SSL failures and cleanup resources before propagating
         # the exception:
@@ -290,10 +294,13 @@ class Connection(Endpoint):
             return self._pn_connection.remote_properties
         return None
 
-    @property
-    def pn_sasl(self):
+    def _init_sasl(self):
         if not self._pn_sasl:
             self._pn_sasl = self._pn_transport.sasl()
+
+    @property
+    def pn_sasl(self):
+        self._init_sasl()
         return self._pn_sasl
 
     def pn_ssl(self):
@@ -311,6 +318,9 @@ class Connection(Endpoint):
                             doc=_uc_docstr)
 
     def open(self):
+        if not self._transport_bound:
+            self._pn_transport.bind(self._pn_connection)
+            self._transport_bound = True
         if self._pn_connection.state & proton.Endpoint.LOCAL_UNINIT:
             self._pn_connection.open()
 
@@ -342,7 +352,8 @@ class Connection(Endpoint):
         self._container.remove_connection(self._name)
         self._container = None
         self._user_context = None
-        self._pn_transport.unbind()
+        if self._transport_bound:
+            self._pn_transport.unbind()
         self._pn_transport = None
         self._pn_connection = None
         if _PROTON_VERSION < (0, 8):
@@ -626,7 +637,7 @@ class Connection(Endpoint):
                         'no-verify': proton.SSLDomain.ANONYMOUS_PEER}
 
         mode = proton.SSLDomain.MODE_CLIENT
-        if properties.get('x-ssl-server'):
+        if properties.get('x-ssl-server', properties.get('x-server')):
             mode = proton.SSLDomain.MODE_SERVER
 
         identity = properties.get('x-ssl-identity')
@@ -644,7 +655,8 @@ class Connection(Endpoint):
         if ca_file:
             # how we verify peers:
             domain.set_trusted_ca_db(ca_file)
-            hostname = properties.get('x-ssl-peer-name')
+            hostname = properties.get('x-ssl-peer-name',
+                                      properties.get('hostname'))
             vdefault = 'verify-peer' if hostname else 'verify-cert'
             vmode = verify_modes.get(properties.get('x-ssl-verify-mode',
                                                     vdefault))
