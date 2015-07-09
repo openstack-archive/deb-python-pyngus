@@ -23,4 +23,4 @@ from pyngus.link import SenderLink, SenderEventHandler
 from pyngus.sockets import read_socket_input
 from pyngus.sockets import write_socket_output
 
-VERSION = (1, 4, 0)  # major, minor, fix
+VERSION = (2, 0, 0)  # major, minor, fix

@@ -46,8 +46,6 @@ class SocketConnection(pyngus.ConnectionEventHandler):
                                                       self,  # handler
                                                       properties)
         self.connection.user_context = self
-        self.connection.pn_sasl.mechanisms("ANONYMOUS")
-        self.connection.pn_sasl.server()
         self.connection.open()
         self.closed = False
 
@@ -109,8 +107,8 @@ class SocketConnection(pyngus.ConnectionEventHandler):
 
     def connection_failed(self, connection, error):
         LOG.error("Connection: failed! error=%s", str(error))
-        # No special recovery - just close it:
-        self.connection.close()
+        # No special recovery - just simulate close completed:
+        self.connection_closed(connection)
 
     def sender_requested(self, connection, link_handle,
                          name, requested_source, properties):
@@ -302,7 +300,9 @@ def main(argv=None):
                 client_socket, client_address = my_socket.accept()
                 # name = uuid.uuid4().hex
                 name = str(client_address)
-                conn_properties = {}
+                conn_properties = {'x-server': True,
+                                   'x-require-auth': False,
+                                   'x-sasl-mechs': "ANONYMOUS"}
                 if opts.idle_timeout:
                     conn_properties["idle-time-out"] = opts.idle_timeout
                 if opts.trace:

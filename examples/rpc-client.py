@@ -68,8 +68,6 @@ class MyConnection(pyngus.ConnectionEventHandler):
                                                            self,
                                                            self.properties)
         self.connection.user_context = self
-        self.connection.sasl.mechanisms("ANONYMOUS")
-        self.connection.sasl.client()
         self.connection.open()
 
     def process(self):
@@ -152,9 +150,6 @@ class MyConnection(pyngus.ConnectionEventHandler):
         # call accept_sender to accept new link,
         # reject_sender to reject it.
         assert False, "Not expected"
-
-    def sasl_step(self, connection, pn_sasl):
-        LOG.debug("sasl_step")
 
     def sasl_done(self, connection, pn_sasl, result):
         LOG.debug("SASL done, result=%s", str(result))

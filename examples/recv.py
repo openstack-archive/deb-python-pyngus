@@ -63,7 +63,11 @@ def main(argv=None):
     # create AMQP Container, Connection, and SenderLink
     #
     container = pyngus.Container(uuid.uuid4().hex)
-    conn_properties = {'hostname': host}
+    conn_properties = {'hostname': host,
+                       'x-server': False,
+                       'x-username': 'guest',
+                       'x-password': 'guest',
+                       'x-sasl-mechs': "ANONYMOUS PLAIN"}
     if opts.trace:
         conn_properties["x-trace-protocol"] = True
     if opts.ca:
@@ -74,8 +78,6 @@ def main(argv=None):
     connection = container.create_connection("receiver",
                                              None,  # no events
                                              conn_properties)
-    connection.pn_sasl.mechanisms("ANONYMOUS")
-    connection.pn_sasl.client()
     connection.open()
 
     class ReceiveCallback(pyngus.ReceiverEventHandler):
