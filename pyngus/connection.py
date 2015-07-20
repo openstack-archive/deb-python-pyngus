@@ -86,7 +86,8 @@ class Connection(Endpoint):
 
     # set of all SASL connection configuration properties
     _SASL_PROPS = set(['x-username', 'x-password', 'x-require-auth',
-                       'x-sasl-mechs'])
+                       'x-sasl-mechs', 'x-sasl-config-dir',
+                       'x-sasl-config-name'])
 
     def __init__(self, container, name, event_handler=None, properties=None):
         """Create a new connection from the Container
@@ -122,8 +123,14 @@ class Connection(Endpoint):
         x-require-auth: boolean, reject remotely-initiated client connections
         that fail to provide valid credentials for authentication.
 
-        x-sasl-mechs" - string, a space-separated list of mechanisms
+        x-sasl-mechs: string, a space-separated list of mechanisms
         that are allowed for authentication.  Defaults to "ANONYMOUS"
+
+        x-sasl-config-dir: string, path to the directory containing the Cyrus
+        SASL server configuration.
+
+        x-sasl-config-name: string, name of the Cyrus SASL configuration file
+        contained in the x-sasl-config-dir (without the '.conf' suffix)
 
         x-ssl-identity: tuple, contains identifying certificate information
         which will be presented to the peer.  The first item in the tuple is
@@ -248,6 +255,12 @@ class Connection(Endpoint):
                 if 'x-sasl-mechs' in self._properties:
                     self.pn_sasl.allowed_mechs(
                         self._properties['x-sasl-mechs'])
+                if 'x-sasl-config-dir' in self._properties:
+                    self.pn_sasl.config_path(
+                        self._properties['x-sasl-config-dir'])
+                if 'x-sasl-config-name' in self._properties:
+                    self.pn_sasl.config_name(
+                        self._properties['x-sasl-config-name'])
 
         # intercept any SSL failures and cleanup resources before propagating
         # the exception:

@@ -824,10 +824,10 @@ class CyrusTest(common.Test):
         self.container1 = pyngus.Container("test-container-1")
         self.container2 = pyngus.Container("test-container-2")
 
-        # add a user 'user@proton', password 'password':
+        # add a user 'user@pyngus', password 'trustno1':
         self._conf_dir = tempfile.mkdtemp()
-        db = os.path.join(self._conf_dir, 'proton.sasldb')
-        _t = "echo password | saslpasswd2 -c -p -f ${db} -u proton user"
+        db = os.path.join(self._conf_dir, 'test.sasldb')
+        _t = "echo trustno1 | saslpasswd2 -c -p -f ${db} -u pyngus user"
         cmd = Template(_t).substitute(db=db)
         try:
             subprocess.call(args=cmd, shell=True)
@@ -837,14 +837,13 @@ class CyrusTest(common.Test):
             raise common.Skipped("saslpasswd2 not installed")
 
         # configure the SASL server:
-        conf = os.path.join(self._conf_dir, 'proton-server.conf')
+        self._conf_name = "test-server"
+        conf = os.path.join(self._conf_dir, '%s.conf' % self._conf_name)
         t = Template("""sasldb_path: ${db}
 mech_list: EXTERNAL DIGEST-MD5 SCRAM-SHA-1 CRAM-MD5 PLAIN ANONYMOUS
 """)
         with open(conf, 'w') as f:
             f.write(t.substitute(db=db))
-
-        os.environ['PN_SASL_CONFIG_PATH'] = self._conf_dir
 
     def teardown(self):
         if self.container1:
@@ -857,10 +856,12 @@ mech_list: EXTERNAL DIGEST-MD5 SCRAM-SHA-1 CRAM-MD5 PLAIN ANONYMOUS
 
     def test_cyrus_sasl_ok(self):
         server_props = {'x-server': True,
-                        'x-require-auth': True}
+                        'x-require-auth': True,
+                        'x-sasl-config-dir': self._conf_dir,
+                        'x-sasl-config-name': self._conf_name}
         client_props = {'x-server': False,
-                        'x-username': 'user@proton',
-                        'x-password': 'password'}
+                        'x-username': 'user@pyngus',
+                        'x-password': 'trustno1'}
 
         c1_events = common.ConnCallback()
         c1 = self.container1.create_connection("c1", c1_events,
@@ -876,9 +877,11 @@ mech_list: EXTERNAL DIGEST-MD5 SCRAM-SHA-1 CRAM-MD5 PLAIN ANONYMOUS
 
     def test_cyrus_sasl_fail(self):
         server_props = {'x-server': True,
-                        'x-require-auth': True}
+                        'x-require-auth': True,
+                        'x-sasl-config-dir': self._conf_dir,
+                        'x-sasl-config-name': self._conf_name}
         client_props = {'x-server': False,
-                        'x-username': 'user@proton',
+                        'x-username': 'user@pyngus',
                         'x-password': 'bad-password'}
 
         c1_events = common.ConnCallback()
