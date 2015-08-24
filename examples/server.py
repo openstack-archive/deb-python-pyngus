@@ -65,7 +65,7 @@ class SocketConnection(pyngus.ConnectionEventHandler):
 
     @property
     def closed(self):
-        return self.connection == None or self.connection.closed
+        return self.connection is None or self.connection.closed
 
     def fileno(self):
         """Allows use of a SocketConnection in a select() call."""

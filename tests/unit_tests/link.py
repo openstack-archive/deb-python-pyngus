@@ -763,4 +763,3 @@ class APITest(common.Test):
             assert False, "RuntimeError expected!"
         except RuntimeError:
             pass
-

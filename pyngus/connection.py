@@ -23,7 +23,6 @@ __all__ = [
 import heapq
 import logging
 import proton
-import time
 import warnings
 
 from pyngus.endpoint import Endpoint
@@ -34,6 +33,7 @@ LOG = logging.getLogger(__name__)
 
 _PROTON_VERSION = (int(getattr(proton, "VERSION_MAJOR", 0)),
                    int(getattr(proton, "VERSION_MINOR", 0)))
+
 
 class _CallbackLock(object):
     """A utility class for detecting when a callback invokes a non-reentrant
@@ -53,6 +53,7 @@ class _CallbackLock(object):
         # held, then the method will raise a RuntimeError().  Return false to
         # propagate the exception to the caller
         return False
+
 
 class ConnectionEventHandler(object):
     """An implementation of an AMQP 1.0 Connection."""

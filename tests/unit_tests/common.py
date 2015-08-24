@@ -107,6 +107,7 @@ def _validate_conn_callback(connection):
     assert connection._callback_lock.in_callback, \
         connection._callback_lock.in_callback
 
+
 def _validate_link_callback(link):
     """Callbacks must only occur when holding the Link callback lock."""
     assert link._callback_lock.in_callback, link._callback_lock.in_callback

@@ -42,7 +42,8 @@ _snd_settle_modes = {"settled": proton.Link.SND_SETTLED,
 _rcv_settle_modes = {"first": proton.Link.RCV_FIRST,
                      "second": proton.Link.RCV_SECOND}
 
-#TODO(kgiusti): this is duplicated in connection.py, put in common file
+
+# TODO(kgiusti): this is duplicated in connection.py, put in common file
 class _CallbackLock(object):
     """A utility class for detecting when a callback invokes a non-reentrant
     Pyngus method.
@@ -66,6 +67,7 @@ class _CallbackLock(object):
         # propagate the exception to the caller
         return False
 
+
 def _not_reentrant(func):
     """Decorator that prevents callbacks from calling into link methods that
     are not reentrant """
@@ -76,6 +78,7 @@ def _not_reentrant(func):
             raise RuntimeError(m)
         return func(*args, **kws)
     return wrap
+
 
 class _Link(Endpoint):
     """A generic Link base class."""

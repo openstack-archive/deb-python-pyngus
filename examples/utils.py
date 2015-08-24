@@ -29,6 +29,7 @@ import pyngus
 
 LOG = logging.getLogger()
 
+
 def get_host_port(server_address):
     """Parse the hostname and port out of the server_address."""
     regex = re.compile(r"^amqp://([a-zA-Z0-9.]+)(:([\d]+))?$")
