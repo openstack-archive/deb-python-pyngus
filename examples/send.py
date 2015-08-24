@@ -35,6 +35,29 @@ LOG = logging.getLogger()
 LOG.addHandler(logging.StreamHandler())
 
 
+class ConnectionEventHandler(pyngus.ConnectionEventHandler):
+    def connection_failed(self, connection, error):
+        """Connection's transport has failed in some way."""
+        LOG.warn("Connection failed: %s", error)
+        connection.close()
+
+    def connection_remote_closed(self, connection, pn_condition):
+        """Peer has closed its end of the connection."""
+        LOG.debug("connection_remote_closed condition=%s", pn_condition)
+        connection.close()
+
+
+class SenderEventHandler(pyngus.SenderEventHandler):
+    def sender_remote_closed(self, sender_link, pn_condition):
+        LOG.debug("Sender peer_closed condition=%s", pn_condition)
+        sender_link.close()
+
+    def sender_failed(self, sender_link, error):
+        """Protocol error occurred."""
+        LOG.debug("Sender failed error=%s", error)
+        sender_link.close()
+
+
 def main(argv=None):
 
     _usage = """Usage: %prog [options] [message content string]"""
@@ -55,6 +78,12 @@ def main(argv=None):
                       help="enable protocol tracing")
     parser.add_option("--ca",
                       help="Certificate Authority PEM file")
+    parser.add_option("--username", type="string",
+                      help="User Id for authentication")
+    parser.add_option("--password", type="string",
+                      help="User password for authentication")
+    parser.add_option("--sasl-mechs", type="string",
+                      help="The list of acceptable SASL mechs")
 
     opts, payload = parser.parse_args(args=argv)
     if not payload:
@@ -69,23 +98,31 @@ def main(argv=None):
     #
     container = pyngus.Container(uuid.uuid4().hex)
     conn_properties = {'hostname': host,
-                       'x-server': False,
-                       'x-sasl-mechs': "ANONYMOUS PLAIN"}
+                       'x-server': False}
     if opts.trace:
         conn_properties["x-trace-protocol"] = True
     if opts.ca:
         conn_properties["x-ssl-ca-file"] = opts.ca
     if opts.idle_timeout:
         conn_properties["idle-time-out"] = opts.idle_timeout
+    if opts.username:
+        conn_properties['x-username'] = opts.username
+    if opts.password:
+        conn_properties['x-password'] = opts.password
+    if opts.sasl_mechs:
+        conn_properties['x-sasl-mechs'] = opts.sasl_mechs
 
+    c_handler = ConnectionEventHandler()
     connection = container.create_connection("sender",
-                                             None,  # no events
+                                             c_handler,
                                              conn_properties)
     connection.open()
 
     source_address = opts.source_addr or uuid.uuid4().hex
+    s_handler = SenderEventHandler()
     sender = connection.create_sender(source_address,
-                                      opts.target_addr)
+                                      opts.target_addr,
+                                      s_handler)
     sender.open()
 
     # Send a single message:

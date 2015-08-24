@@ -42,32 +42,35 @@ def read_socket_input(connection, socket_obj):
     if count <= 0:
         return count  # 0 or EOS
 
-    try:
-        sock_data = socket_obj.recv(count)
-    except socket.timeout as e:
-        LOG.debug("Socket timeout exception %s", str(e))
-        raise  # caller must handle
-    except socket.error as e:
-        LOG.debug("Socket error exception %s", str(e))
-        err = e.errno
-        # ignore non-fatal errors
-        if (err != errno.EAGAIN and
-                err != errno.EWOULDBLOCK and
-                err != errno.EINTR):
-            # otherwise, unrecoverable:
-            connection.close_input()
-        raise  # caller must handle
-    except Exception as e:  # beats me... assume fatal
-        LOG.debug("unknown socket exception %s", str(e))
-        connection.close_input()
-        raise  # caller must handle
+    while True:
+        try:
+            sock_data = socket_obj.recv(count)
+            break
+        except socket.timeout as e:
+            LOG.debug("Socket timeout exception %s", str(e))
+            raise  # caller must handle
+        except socket.error as e:
+            LOG.debug("Socket error exception %s", str(e))
+            err = e.errno
+            if err in [errno.EAGAIN,
+                       errno.EWOULDBLOCK,
+                       errno.EINTR]:
+                # try again later
+                return 0
+            # otherwise, unrecoverable, caller must handle
+            raise
+        except Exception as e:  # beats me... assume fatal
+            LOG.debug("unknown socket exception %s", str(e))
+            raise  # caller must handle
 
-    if sock_data:
+    if len(sock_data) > 0:
         count = connection.process_input(sock_data)
     else:
         LOG.debug("Socket closed")
         count = Connection.EOS
         connection.close_input()
+        connection.close_output()
+    LOG.debug("Socket recv %s bytes", count)
     return count
 
 
@@ -85,30 +88,34 @@ def write_socket_output(connection, socket_obj):
     if not data:
         # error - has_output > 0, but no data?
         return Connection.EOS
-    try:
-        count = socket_obj.send(data)
-    except socket.timeout as e:
-        LOG.debug("Socket timeout exception %s", str(e))
-        raise  # caller must handle
-    except socket.error as e:
-        LOG.debug("Socket error exception %s", str(e))
-        err = e.errno
-        # ignore non-fatal errors
-        if (err != errno.EAGAIN and
-                err != errno.EWOULDBLOCK and
-                err != errno.EINTR):
-            # otherwise, unrecoverable
-            connection.close_output()
-        raise
-    except Exception as e:  # beats me... assume fatal
-        LOG.debug("unknown socket exception %s", str(e))
-        connection.close_output()
-        raise
+
+    while True:
+        try:
+            count = socket_obj.send(data)
+            break
+        except socket.timeout as e:
+            LOG.debug("Socket timeout exception %s", str(e))
+            raise  # caller must handle
+        except socket.error as e:
+            LOG.debug("Socket error exception %s", str(e))
+            err = e.errno
+            if err in [errno.EAGAIN,
+                       errno.EWOULDBLOCK,
+                       errno.EINTR]:
+                # try again later
+                return 0
+            # else assume fatal let caller handle it:
+            raise
+        except Exception as e:  # beats me... assume fatal
+            LOG.debug("unknown socket exception %s", str(e))
+            raise
 
     if count > 0:
+        LOG.debug("Socket sent %s bytes", count)
         connection.output_written(count)
     elif data:
         LOG.debug("Socket closed")
         count = Connection.EOS
         connection.close_output()
+        connection.close_input()
     return count

@@ -47,13 +47,11 @@ class SocketConnection(pyngus.ConnectionEventHandler):
                                                       properties)
         self.connection.user_context = self
         self.connection.open()
-        self.closed = False
 
         self.sender_links = set()
         self.receiver_links = set()
 
     def destroy(self):
-        self.closed = True
         for link in self.sender_links.copy():
             link.destroy()
         for link in self.receiver_links.copy():
@@ -65,6 +63,10 @@ class SocketConnection(pyngus.ConnectionEventHandler):
             self.socket.close()
             self.socket = None
 
+    @property
+    def closed(self):
+        return self.connection == None or self.connection.closed
+
     def fileno(self):
         """Allows use of a SocketConnection in a select() call."""
         return self.socket.fileno()
@@ -75,9 +77,8 @@ class SocketConnection(pyngus.ConnectionEventHandler):
             pyngus.read_socket_input(self.connection, self.socket)
         except Exception as e:
             LOG.error("Exception on socket read: %s", str(e))
-            # may be redundant if closed cleanly:
-            self.connection_closed(self.connection)
-            return
+            self.connection.close_input()
+            self.connection.close()
         self.connection.process(time.time())
 
     def send_output(self):
@@ -87,9 +88,8 @@ class SocketConnection(pyngus.ConnectionEventHandler):
                                        self.socket)
         except Exception as e:
             LOG.error("Exception on socket write: %s", str(e))
-            # may be redundant if closed cleanly:
-            self.connection_closed(self.connection)
-            return
+            self.connection.close_output()
+            self.connection.close()
         self.connection.process(time.time())
 
     # ConnectionEventHandler callbacks:
@@ -102,13 +102,10 @@ class SocketConnection(pyngus.ConnectionEventHandler):
 
     def connection_closed(self, connection):
         LOG.debug("Connection: closed.")
-        # main loop will destroy
-        self.closed = True
 
     def connection_failed(self, connection, error):
         LOG.error("Connection: failed! error=%s", str(error))
-        # No special recovery - just simulate close completed:
-        self.connection_closed(connection)
+        self.connection.close()
 
     def sender_requested(self, connection, link_handle,
                          name, requested_source, properties):
@@ -152,6 +149,10 @@ class MySenderLink(pyngus.SenderEventHandler):
         self.sender_link.open()
         print("New Sender link created, name=%s" % sl.name)
 
+    @property
+    def closed(self):
+        return self.sender_link.closed
+
     def destroy(self):
         print("Sender link destroyed, name=%s" % self.sender_link.name)
         self.socket_conn.sender_links.discard(self)
@@ -175,11 +176,6 @@ class MySenderLink(pyngus.SenderEventHandler):
     def sender_remote_closed(self, sender_link, error):
         LOG.debug("Sender: Remote closed")
         self.sender_link.close()
-
-    def sender_closed(self, sender_link):
-        LOG.debug("Sender: Closed")
-        # Done with this sender:
-        self.destroy()
 
     def credit_granted(self, sender_link):
         LOG.debug("Sender: credit granted")
@@ -208,6 +204,10 @@ class MyReceiverLink(pyngus.ReceiverEventHandler):
         self.receiver_link.add_capacity(1)
         print("New Receiver link created, name=%s" % rl.name)
 
+    @property
+    def closed(self):
+        return self.receiver_link.closed
+
     def destroy(self):
         print("Receiver link destroyed, name=%s" % self.receiver_link.name)
         self.socket_conn.receiver_links.discard(self)
@@ -223,11 +223,6 @@ class MyReceiverLink(pyngus.ReceiverEventHandler):
     def receiver_remote_closed(self, receiver_link, error):
         LOG.debug("Receiver: Remote closed")
         self.receiver_link.close()
-
-    def receiver_closed(self, receiver_link):
-        LOG.debug("Receiver: Closed")
-        # Done with this Receiver:
-        self.destroy()
 
     def message_received(self, receiver_link, message, handle):
         self.receiver_link.message_accepted(handle)
@@ -256,6 +251,14 @@ def main(argv=None):
                       help="PEM File containing the server's private key")
     parser.add_option("--keypass",
                       help="Password used to decrypt key file")
+    parser.add_option("--require-auth", action="store_true",
+                      help="Require clients to authenticate")
+    parser.add_option("--sasl-mechs", type="string",
+                      help="The list of acceptable SASL mechs")
+    parser.add_option("--sasl-cfg-name", type="string",
+                      help="name of SASL config file (no suffix)")
+    parser.add_option("--sasl-cfg-dir", type="string",
+                      help="Path to the SASL config file")
 
     opts, arguments = parser.parse_args(args=argv)
     if opts.debug:
@@ -300,9 +303,15 @@ def main(argv=None):
                 client_socket, client_address = my_socket.accept()
                 # name = uuid.uuid4().hex
                 name = str(client_address)
-                conn_properties = {'x-server': True,
-                                   'x-require-auth': False,
-                                   'x-sasl-mechs': "ANONYMOUS"}
+                conn_properties = {'x-server': True}
+                if opts.require_auth:
+                    conn_properties['x-require-auth'] = True
+                if opts.sasl_mechs:
+                    conn_properties['x-sasl-mechs'] = opts.sasl_mechs
+                if opts.sasl_cfg_name:
+                    conn_properties['x-sasl-config-name'] = opts.sasl_cfg_name
+                if opts.sasl_cfg_dir:
+                    conn_properties['x-sasl-config-dir'] = opts.sasl_cfg_dir
                 if opts.idle_timeout:
                     conn_properties["idle-time-out"] = opts.idle_timeout
                 if opts.trace:
@@ -337,14 +346,20 @@ def main(argv=None):
             w.send_output()
             worked.add(w)
 
-        # nuke any completed connections:
         closed = False
         while worked:
             sc = worked.pop()
+            # nuke any completed connections:
             if sc.closed:
                 socket_connections.discard(sc)
                 sc.destroy()
                 closed = True
+            else:
+                # can free any closed links now (optional):
+                for link in sc.sender_links | sc.receiver_links:
+                    if link.closed:
+                        link.destroy()
+
         if closed:
             LOG.debug("%d active connections present", len(socket_connections))
 

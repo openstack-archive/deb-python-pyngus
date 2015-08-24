@@ -35,6 +35,24 @@ LOG = logging.getLogger(__name__)
 _PROTON_VERSION = (int(getattr(proton, "VERSION_MAJOR", 0)),
                    int(getattr(proton, "VERSION_MINOR", 0)))
 
+class _CallbackLock(object):
+    """A utility class for detecting when a callback invokes a non-reentrant
+    Pyngus method.
+    """
+    def __init__(self):
+        super(_CallbackLock, self).__init__()
+        self.in_callback = 0
+
+    def __enter__(self):
+        self.in_callback += 1
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.in_callback -= 1
+        # if a call is made to a non-reentrant method while this context is
+        # held, then the method will raise a RuntimeError().  Return false to
+        # propagate the exception to the caller
+        return False
 
 class ConnectionEventHandler(object):
     """An implementation of an AMQP 1.0 Connection."""
@@ -88,6 +106,17 @@ class Connection(Endpoint):
     _SASL_PROPS = set(['x-username', 'x-password', 'x-require-auth',
                        'x-sasl-mechs', 'x-sasl-config-dir',
                        'x-sasl-config-name'])
+
+    def _not_reentrant(func):
+        """Decorator that prevents callbacks from calling into methods that are
+        not reentrant
+        """
+        def wrap(self, *args, **kws):
+            if self._callback_lock.in_callback:
+                m = "Connection %s cannot be invoked from a callback!" % func
+                raise RuntimeError(m)
+            return func(self, *args, **kws)
+        return wrap
 
     def __init__(self, container, name, event_handler=None, properties=None):
         """Create a new connection from the Container
@@ -213,8 +242,8 @@ class Connection(Endpoint):
         self._error = None
         self._next_deadline = 0
         self._user_context = None
-        self._in_process = False
         self._remote_session_id = 0
+        self._callback_lock = _CallbackLock()
 
         self._pn_sasl = None
         self._sasl_done = False
@@ -242,19 +271,21 @@ class Connection(Endpoint):
             else:
                 # new Proton SASL configuration
                 if 'x-require-auth' in self._properties:
-                    self._init_sasl()
                     ra = self._properties['x-require-auth']
                     self._pn_transport.require_auth(ra)
                 if 'x-username' in self._properties:
-                    self._init_sasl()
+                    # maintain old behavior: allow PLAIN and ANONYMOUS
+                    # authentication.  Override this using x-sasl-mechs below:
+                    self.pn_sasl.allow_insecure_mechs = True
                     self._pn_connection.user = self._properties['x-username']
                 if 'x-password' in self._properties:
-                    self._init_sasl()
                     self._pn_connection.password = \
                         self._properties['x-password']
                 if 'x-sasl-mechs' in self._properties:
-                    self.pn_sasl.allowed_mechs(
-                        self._properties['x-sasl-mechs'])
+                    mechs = self._properties['x-sasl-mechs'].upper()
+                    self.pn_sasl.allowed_mechs(mechs)
+                    if 'PLAIN' not in mechs and 'ANONYMOUS' not in mechs:
+                        self.pn_sasl.allow_insecure_mechs = False
                 if 'x-sasl-config-dir' in self._properties:
                     self.pn_sasl.config_path(
                         self._properties['x-sasl-config-dir'])
@@ -309,13 +340,10 @@ class Connection(Endpoint):
             return self._pn_connection.remote_properties
         return None
 
-    def _init_sasl(self):
-        if not self._pn_sasl:
-            self._pn_sasl = self._pn_transport.sasl()
-
     @property
     def pn_sasl(self):
-        self._init_sasl()
+        if not self._pn_sasl:
+            self._pn_sasl = self._pn_transport.sasl()
         return self._pn_sasl
 
     def pn_ssl(self):
@@ -359,8 +387,13 @@ class Connection(Endpoint):
         """Return True if the Connection has finished closing."""
         return (self._write_done and self._read_done)
 
+    @_not_reentrant
     def destroy(self):
-        self._error = "Destroyed"
+        # if a connection is destroyed without flushing pending output,
+        # the remote will see an unclean shutdown (framing error)
+        if self.has_output > 0:
+            LOG.debug("Connection with buffered output destroyed")
+        self._error = "Destroyed by the application"
         self._handler = None
         self._sender_links.clear()
         self._receiver_links.clear()
@@ -382,79 +415,80 @@ class Connection(Endpoint):
     _CLOSED = (proton.Endpoint.LOCAL_CLOSED | proton.Endpoint.REMOTE_CLOSED)
     _ACTIVE = (proton.Endpoint.LOCAL_ACTIVE | proton.Endpoint.REMOTE_ACTIVE)
 
+    @_not_reentrant
     def process(self, now):
         """Perform connection state processing."""
-        if self._in_process:
-            raise RuntimeError("Connection.process() is not re-entrant!")
-        self._in_process = True
-        try:
-            # if the connection has hit an unrecoverable error,
-            # nag the application until connection is destroyed
-            if self._error:
-                if self._handler:
-                    self._handler.connection_failed(self, self._error)
-                # nag application until connection is destroyed
-                self._next_deadline = now
-                return now
+        if self._pn_connection is None:
+            LOG.error("Connection.process() called on destroyed connection!")
+            return 0
 
-            # do nothing until the connection has been opened
-            if self._pn_connection.state & proton.Endpoint.LOCAL_UNINIT:
-                return 0
+        # do nothing until the connection has been opened
+        if self._pn_connection.state & proton.Endpoint.LOCAL_UNINIT:
+            return 0
 
+        if self._pn_sasl and not self._sasl_done:
+            # wait until SASL has authenticated
             if (_PROTON_VERSION < (0, 10)):
-                # wait until SASL has authenticated
-                if self._pn_sasl and not self._sasl_done:
-                    if self._pn_sasl.state not in (proton.SASL.STATE_PASS,
-                                                   proton.SASL.STATE_FAIL):
-                        LOG.debug("SASL in progress. State=%s",
-                                  str(self._pn_sasl.state))
-                        if self._handler:
-                            self._handler.sasl_step(self, self._pn_sasl)
-                        return self._next_deadline
-
-                    self._sasl_done = True
+                if self._pn_sasl.state not in (proton.SASL.STATE_PASS,
+                                               proton.SASL.STATE_FAIL):
+                    LOG.debug("SASL in progress. State=%s",
+                              str(self._pn_sasl.state))
                     if self._handler:
+                        with self._callback_lock:
+                            self._handler.sasl_step(self, self._pn_sasl)
+                    return self._next_deadline
+
+                self._sasl_done = True
+                if self._handler:
+                    with self._callback_lock:
                         self._handler.sasl_done(self, self._pn_sasl,
                                                 self._pn_sasl.outcome)
-
-            # process timer events:
-            timer_deadline = self._expire_timers(now)
-            transport_deadline = self._pn_transport.tick(now)
-            if timer_deadline and transport_deadline:
-                self._next_deadline = min(timer_deadline, transport_deadline)
             else:
-                self._next_deadline = timer_deadline or transport_deadline
+                if self._pn_sasl.outcome is not None:
+                    self._sasl_done = True
+                    if self._handler:
+                        with self._callback_lock:
+                            self._handler.sasl_done(self, self._pn_sasl,
+                                                    self._pn_sasl.outcome)
 
-            # process events from proton:
+        # process timer events:
+        timer_deadline = self._expire_timers(now)
+        transport_deadline = self._pn_transport.tick(now)
+        if timer_deadline and transport_deadline:
+            self._next_deadline = min(timer_deadline, transport_deadline)
+        else:
+            self._next_deadline = timer_deadline or transport_deadline
+
+        # process events from proton:
+        pn_event = self._pn_collector.peek()
+        while pn_event:
+            LOG.debug("pn_event: %s received", pn_event.type)
+            if self._handle_proton_event(pn_event):
+                pass
+            elif _SessionProxy._handle_proton_event(pn_event, self):
+                pass
+            elif _Link._handle_proton_event(pn_event, self):
+                pass
+            self._pn_collector.pop()
             pn_event = self._pn_collector.peek()
-            while pn_event:
-                if self._handle_proton_event(pn_event):
-                    pass
-                elif _SessionProxy._handle_proton_event(pn_event, self):
-                    pass
-                elif _Link._handle_proton_event(pn_event, self):
-                    pass
-                self._pn_collector.pop()
-                pn_event = self._pn_collector.peek()
 
-            # re-check for connection failure after processing all pending
-            # engine events:
-            if self._error:
-                if self._handler:
+        # check for connection failure after processing all pending
+        # engine events:
+        if self._error:
+            if self._handler:
+                # nag application until connection is destroyed
+                self._next_deadline = now
+                with self._callback_lock:
                     self._handler.connection_failed(self, self._error)
-                    # nag application until connection is destroyed
-                    self._next_deadline = now
-            elif (self._endpoint_state == self._CLOSED and
-                    self._read_done and self._write_done):
-                # invoke closed callback after endpoint has fully closed and
-                # all pending I/O has completed:
-                if self._handler:
+        elif (self._endpoint_state == self._CLOSED and
+              self._read_done and self._write_done):
+            # invoke closed callback after endpoint has fully closed and
+            # all pending I/O has completed:
+            if self._handler:
+                with self._callback_lock:
                     self._handler.connection_closed(self)
 
-            return self._next_deadline
-
-        finally:
-            self._in_process = False
+        return self._next_deadline
 
     @property
     def next_tick(self):
@@ -470,14 +504,17 @@ class Connection(Endpoint):
     @property
     def needs_input(self):
         if self._read_done:
+            LOG.debug("needs_input EOS")
             return self.EOS
         try:
-            # TODO(grs): can this actually throw?
             capacity = self._pn_transport.capacity()
         except Exception as e:
-            return self._connection_failed(str(e))
+            self._read_done = True
+            self._connection_failed(str(e))
+            return self.EOS
         if capacity >= 0:
             return capacity
+        LOG.debug("needs_input read done")
         self._read_done = True
         return self.EOS
 
@@ -486,10 +523,14 @@ class Connection(Endpoint):
         if c <= 0:
             return c
         try:
+            LOG.debug("pushing %s bytes to transport:", c)
             rc = self._pn_transport.push(in_data[:c])
         except Exception as e:
-            return self._connection_failed(str(e))
+            self._read_done = True
+            self._connection_failed(str(e))
+            return self.EOS
         if rc:  # error?
+            LOG.debug("process_input read done")
             self._read_done = True
             return self.EOS
         # hack: check if this was the last input needed by the connection.
@@ -504,18 +545,23 @@ class Connection(Endpoint):
                 self._pn_transport.close_tail()
             except Exception as e:
                 self._connection_failed(str(e))
+            LOG.debug("close_input read done")
             self._read_done = True
 
     @property
     def has_output(self):
         if self._write_done:
+            LOG.debug("has output EOS")
             return self.EOS
         try:
             pending = self._pn_transport.pending()
         except Exception as e:
-            return self._connection_failed(str(e))
+            self._write_done = True
+            self._connection_failed(str(e))
+            return self.EOS
         if pending >= 0:
             return pending
+        LOG.debug("has output write_done")
         self._write_done = True
         return self.EOS
 
@@ -526,6 +572,7 @@ class Connection(Endpoint):
         if c <= 0:
             return None
         try:
+            LOG.debug("Getting %s bytes output from transport", c)
             buf = self._pn_transport.peek(c)
         except Exception as e:
             self._connection_failed(str(e))
@@ -534,9 +581,11 @@ class Connection(Endpoint):
 
     def output_written(self, count):
         try:
+            LOG.debug("Popping %s bytes output from transport", count)
             self._pn_transport.pop(count)
         except Exception as e:
-            return self._connection_failed(str(e))
+            self._write_done = True
+            self._connection_failed(str(e))
         # hack: check if this was the last output from the connection.  If so,
         # this will set the _write_done flag and the 'connection closed'
         # callback can be issued on the next call to process()
@@ -548,6 +597,7 @@ class Connection(Endpoint):
                 self._pn_transport.close_head()
             except Exception as e:
                 self._connection_failed(str(e))
+            LOG.debug("close output write done")
             self._write_done = True
 
     def create_sender(self, source_address, target_address=None,
@@ -584,6 +634,9 @@ class Connection(Endpoint):
         if not link:
             raise Exception("Invalid link_handle: %s" % link_handle)
         link.reject(pn_condition)
+        # note: normally, link.destroy() cannot be called from a callback,
+        # but this link was never made available to the application so this
+        # link is only referenced by the connection
         link.destroy()
 
     def create_receiver(self, target_address, source_address=None,
@@ -619,6 +672,9 @@ class Connection(Endpoint):
         if not link:
             raise Exception("Invalid link_handle: %s" % link_handle)
         link.reject(pn_condition)
+        # note: normally, link.destroy() cannot be called from a callback,
+        # but this link was never made available to the application so this
+        # link is only referenced by the connection
         link.destroy()
 
     @property
@@ -637,12 +693,7 @@ class Connection(Endpoint):
         """Clean up after connection failure detected."""
         if not self._error:
             LOG.error("Connection failed: %s", str(error))
-            self._read_done = True
-            self._write_done = True
             self._error = error
-            # report error during the next call to process()
-            self._next_deadline = time.time()
-        return self.EOS
 
     def _configure_ssl(self, properties):
         if not properties:
@@ -759,20 +810,16 @@ class Connection(Endpoint):
         """Both ends of the Endpoint have become active."""
         LOG.debug("Connection is up")
         if self._handler:
-            if (_PROTON_VERSION >= (0, 10)):
-                # simulate the old sasl_done callback
-                if self._pn_sasl and not self._sasl_done:
-                    self._sasl_done = True
-                    self._handler.sasl_done(self, self._pn_sasl,
-                                            self._pn_sasl.outcome)
-            self._handler.connection_active(self)
+            with self._callback_lock:
+                self._handler.connection_active(self)
 
     def _ep_need_close(self):
         """The remote has closed its end of the endpoint."""
         LOG.debug("Connection remotely closed")
         if self._handler:
             cond = self._pn_connection.remote_condition
-            self._handler.connection_remote_closed(self, cond)
+            with self._callback_lock:
+                self._handler.connection_remote_closed(self, cond)
 
     def _ep_error(self, error):
         """The endpoint state machine failed due to protocol error."""

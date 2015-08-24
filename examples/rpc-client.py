@@ -93,12 +93,23 @@ class MyConnection(pyngus.ConnectionEventHandler):
         LOG.debug("select() returned")
 
         if readable:
-            pyngus.read_socket_input(self.connection,
-                                     self.socket)
+            try:
+                pyngus.read_socket_input(self.connection,
+                                         self.socket)
+            except Exception as e:
+                LOG.error("Exception on socket read: %s", str(e))
+                self.connection.close_input()
+                self.connection.close()
+
         self.connection.process(time.time())
         if writable:
-            pyngus.write_socket_output(self.connection,
-                                       self.socket)
+            try:
+                pyngus.write_socket_output(self.connection,
+                                           self.socket)
+            except Exception as e:
+                LOG.error("Exception on socket write: %s", str(e))
+                self.connection.close_output()
+                self.connection.close()
 
     def close(self, error=None):
         self.connection.close(error)
@@ -131,6 +142,7 @@ class MyConnection(pyngus.ConnectionEventHandler):
 
     def connection_remote_closed(self, connection, reason):
         LOG.debug("Connection remote closed callback")
+        connection.close()
 
     def connection_closed(self, connection):
         LOG.debug("Connection closed callback")

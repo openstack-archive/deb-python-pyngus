@@ -53,6 +53,9 @@ LOG.addHandler(logging.StreamHandler())
 sender_links = {}
 receiver_links = {}
 
+# links that have closed and need to be destroyed:
+dead_links = set()
+
 # Map reply-to address to the proper sending link (indexed by address)
 reply_senders = {}
 
@@ -92,10 +95,8 @@ class SocketConnection(pyngus.ConnectionEventHandler):
             pyngus.read_socket_input(self.connection, self.socket)
         except Exception as e:
             LOG.error("Exception on socket read: %s", str(e))
-            # may be redundant if closed cleanly:
-            self.connection_closed(self.connection)
-            return
-
+            self.connection.close_input()
+            self.connection.close()
         self.connection.process(time.time())
 
     def send_output(self):
@@ -105,10 +106,8 @@ class SocketConnection(pyngus.ConnectionEventHandler):
                                        self.socket)
         except Exception as e:
             LOG.error("Exception on socket write: %s", str(e))
-            # may be redundant if closed cleanly:
-            self.connection_closed(self.connection)
-            return
-
+            self.connection.close_output()
+            self.connection.close()
         self.connection.process(time.time())
 
     # ConnectionEventHandler callbacks:
@@ -198,6 +197,12 @@ class MySenderLink(pyngus.SenderEventHandler):
                                                     properties)
         self.sender_link.open()
 
+    @property
+    def closed(self):
+        if self.sender_link:
+            return self.sender_link.closed
+        return True
+
     # SenderEventHandler callbacks:
 
     def sender_active(self, sender_link):
@@ -211,12 +216,14 @@ class MySenderLink(pyngus.SenderEventHandler):
         LOG.debug("sender closed callback")
         global sender_links
         global reply_senders
+        global dead_links
 
         if self._ident in sender_links:
             del sender_links[self._ident]
         if self._source_address in reply_senders:
             del reply_senders[self._source_address]
-        self.sender_link.destroy()
+
+        dead_links.add(self.sender_link)
         self.sender_link = None
 
     # 'message sent' callback:
@@ -238,6 +245,12 @@ class MyReceiverLink(pyngus.ReceiverEventHandler):
                                                 properties)
         self._link.open()
 
+    @property
+    def closed(self):
+        if self._link:
+            return self._link.closed
+        return True
+
     # ReceiverEventHandler callbacks:
     def receiver_active(self, receiver_link):
         LOG.debug("receiver active callback")
@@ -250,10 +263,12 @@ class MyReceiverLink(pyngus.ReceiverEventHandler):
     def receiver_closed(self, receiver_link):
         LOG.debug("receiver closed callback")
         global receiver_links
+        global dead_links
 
         if self._ident in receiver_links:
             del receiver_links[self._ident]
-        self._link.destroy()
+
+        dead_links.add(self._link)
         self._link = None
 
     def message_received(self, receiver_link, message, handle):
@@ -353,6 +368,7 @@ def main(argv=None):
     #
     container = pyngus.Container("example RPC service")
     global socket_connections
+    global dead_links
 
     while True:
 
@@ -428,7 +444,11 @@ def main(argv=None):
             w.send_output()
             worked.append(w)
 
-        # nuke any completed connections:
+        # first, free any closed links:
+        while dead_links:
+            dead_links.pop().destroy()
+
+        # then nuke any completed connections:
         closed = False
         while worked:
             sc = worked.pop()

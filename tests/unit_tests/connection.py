@@ -435,8 +435,8 @@ class APITest(common.Test):
         assert cb1.failed_ct > 0
         assert cb1.failed_error
 
-    def test_process_reentrancy(self):
-        """Catch any attempt to re-enter Connection.process() from a
+    def test_non_reentrant_callback(self):
+        """Catch any attempt to call a non-reentrant Connection method from a
         callback."""
         class BadCallback(common.ConnCallback):
             def connection_active(self, connection):
@@ -896,5 +896,7 @@ mech_list: EXTERNAL DIGEST-MD5 SCRAM-SHA-1 CRAM-MD5 PLAIN ANONYMOUS
         assert not c1.active, c1.active
         assert c1_events.failed_ct == 1, c1_events.failed_ct
         assert not c2.active, c2.active
-        assert c2_events.sasl_done_ct == 0, c2_events.sasl_done_ct
+        assert c2_events.sasl_done_ct == 1, c2_events.sasl_done_ct
+        # outcome 1 == auth error
+        assert c2_events.sasl_done_outcome == 1, c2_events.sasl_done_outcome
         assert c2_events.failed_ct == 1, c2_events.failed_ct

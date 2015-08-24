@@ -102,9 +102,14 @@ def process_connections(c1, c2, timestamp=None):
         c2.process(timestamp)
 
 
-def _validate_callback(connection):
-    """Callbacks must only occur from the Connection.process() call."""
-    assert connection._in_process
+def _validate_conn_callback(connection):
+    """Callbacks must only occur when holding the Connection callback lock"""
+    assert connection._callback_lock.in_callback, \
+        connection._callback_lock.in_callback
+
+def _validate_link_callback(link):
+    """Callbacks must only occur when holding the Link callback lock."""
+    assert link._callback_lock.in_callback, link._callback_lock.in_callback
 
 
 class ConnCallback(pyngus.ConnectionEventHandler):
@@ -131,29 +136,30 @@ class ConnCallback(pyngus.ConnectionEventHandler):
 
         self.sasl_step_ct = 0
         self.sasl_done_ct = 0
+        self.sasl_done_outcome = None
 
     def connection_active(self, connection):
-        _validate_callback(connection)
+        _validate_conn_callback(connection)
         self.active_ct += 1
 
     def connection_failed(self, connection, error):
-        _validate_callback(connection)
+        _validate_conn_callback(connection)
         self.failed_ct += 1
         self.failed_error = error
 
     def connection_remote_closed(self, connection, error=None):
-        _validate_callback(connection)
+        _validate_conn_callback(connection)
         self.remote_closed_ct += 1
         self.remote_closed_error = error
 
     def connection_closed(self, connection):
-        _validate_callback(connection)
+        _validate_conn_callback(connection)
         self.closed_ct += 1
 
     def sender_requested(self, connection, link_handle,
                          name, requested_source,
                          properties):
-        _validate_callback(connection)
+        _validate_conn_callback(connection)
         self.sender_requested_ct += 1
         args = ConnCallback.RequestArgs(link_handle, name,
                                         requested_source, None,
@@ -163,7 +169,7 @@ class ConnCallback(pyngus.ConnectionEventHandler):
     def receiver_requested(self, connection, link_handle,
                            name, requested_target,
                            properties):
-        _validate_callback(connection)
+        _validate_conn_callback(connection)
         self.receiver_requested_ct += 1
         args = ConnCallback.RequestArgs(link_handle, name,
                                         None, requested_target,
@@ -171,12 +177,13 @@ class ConnCallback(pyngus.ConnectionEventHandler):
         self.receiver_requested_args.append(args)
 
     def sasl_step(self, connection, pn_sasl):
-        _validate_callback(connection)
+        _validate_conn_callback(connection)
         self.sasl_step_ct += 1
 
     def sasl_done(self, connection, pn_sasl, result):
-        _validate_callback(connection)
+        _validate_conn_callback(connection)
         self.sasl_done_ct += 1
+        self.sasl_done_outcome = result
 
 
 class SenderCallback(pyngus.SenderEventHandler):
@@ -188,20 +195,20 @@ class SenderCallback(pyngus.SenderEventHandler):
         self.credit_granted_ct = 0
 
     def sender_active(self, sender_link):
-        _validate_callback(sender_link.connection)
+        _validate_link_callback(sender_link)
         self.active_ct += 1
 
     def sender_remote_closed(self, sender_link, error=None):
-        _validate_callback(sender_link.connection)
+        _validate_link_callback(sender_link)
         self.remote_closed_ct += 1
         self.remote_closed_error = error
 
     def sender_closed(self, sender_link):
-        _validate_callback(sender_link.connection)
+        _validate_link_callback(sender_link)
         self.closed_ct += 1
 
     def credit_granted(self, sender_link):
-        _validate_callback(sender_link.connection)
+        _validate_link_callback(sender_link)
         self.credit_granted_ct += 1
 
 
@@ -215,7 +222,7 @@ class DeliveryCallback(object):
         self.count = 0
 
     def __call__(self, link, handle, status, info):
-        _validate_callback(link.connection)
+        _validate_link_callback(link)
         self.link = link
         self.handle = handle
         self.status = status
@@ -233,19 +240,23 @@ class ReceiverCallback(pyngus.ReceiverEventHandler):
         self.received_messages = []
 
     def receiver_active(self, receiver_link):
-        _validate_callback(receiver_link.connection)
+        _validate_link_callback(receiver_link)
+        _validate_conn_callback(receiver_link.connection)
         self.active_ct += 1
 
     def receiver_remote_closed(self, receiver_link, error=None):
-        _validate_callback(receiver_link.connection)
+        _validate_link_callback(receiver_link)
+        _validate_conn_callback(receiver_link.connection)
         self.remote_closed_ct += 1
         self.remote_closed_error = error
 
     def receiver_closed(self, receiver_link):
-        _validate_callback(receiver_link.connection)
+        _validate_link_callback(receiver_link)
+        _validate_conn_callback(receiver_link.connection)
         self.closed_ct += 1
 
     def message_received(self, receiver_link, message, handle):
-        _validate_callback(receiver_link.connection)
+        _validate_link_callback(receiver_link)
+        _validate_conn_callback(receiver_link.connection)
         self.message_received_ct += 1
         self.received_messages.append((message, handle))

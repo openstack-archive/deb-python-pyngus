@@ -704,3 +704,63 @@ class APITest(common.Test):
         assert mode and mode == 'unsettled'
         mode = args.properties.get('rcv-settle-mode')
         assert mode and mode == 'second'
+
+    def test_non_reentrant_callback(self):
+        class SenderBadCallback(common.SenderCallback):
+            def sender_active(self, sender):
+                # Illegal:
+                sender.destroy()
+
+        class ReceiverBadCallback(common.ReceiverCallback):
+            def receiver_active(self, receiver):
+                # Illegal:
+                receiver.destroy()
+
+        class ReceiverBadCallback2(common.ReceiverCallback):
+            def receiver_active(self, receiver):
+                # Illegal:
+                receiver.connection.destroy()
+
+        sc = SenderBadCallback()
+        sender = self.conn1.create_sender("src1", "tgt1",
+                                          event_handler=sc)
+        sender.open()
+        self.process_connections()
+        assert self.conn2_handler.receiver_requested_ct
+        args = self.conn2_handler.receiver_requested_args[-1]
+        receiver = self.conn2.accept_receiver(args.link_handle)
+        receiver.open()
+        try:
+            self.process_connections()
+            assert False, "RuntimeError expected!"
+        except RuntimeError:
+            pass
+
+        sender = self.conn1.create_sender("src2", "tgt2")
+        sender.open()
+        self.process_connections()
+        args = self.conn2_handler.receiver_requested_args[-1]
+        rc = ReceiverBadCallback()
+        receiver = self.conn2.accept_receiver(args.link_handle,
+                                              event_handler=rc)
+        receiver.open()
+        try:
+            self.process_connections()
+            assert False, "RuntimeError expected!"
+        except RuntimeError:
+            pass
+
+        sender = self.conn1.create_sender("src3", "tgt3")
+        sender.open()
+        self.process_connections()
+        args = self.conn2_handler.receiver_requested_args[-1]
+        rc = ReceiverBadCallback2()
+        receiver = self.conn2.accept_receiver(args.link_handle,
+                                              event_handler=rc)
+        receiver.open()
+        try:
+            self.process_connections()
+            assert False, "RuntimeError expected!"
+        except RuntimeError:
+            pass
+

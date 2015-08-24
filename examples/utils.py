@@ -19,6 +19,7 @@
 """Utilities used by the Examples"""
 
 import errno
+import logging
 import re
 import socket
 import select
@@ -26,6 +27,7 @@ import time
 
 import pyngus
 
+LOG = logging.getLogger()
 
 def get_host_port(server_address):
     """Parse the hostname and port out of the server_address."""
@@ -103,10 +105,24 @@ def process_connection(connection, my_socket):
                                                [],
                                                timeout)
     if readable:
-        pyngus.read_socket_input(connection, my_socket)
+        try:
+            pyngus.read_socket_input(connection, my_socket)
+        except Exception as e:
+            # treat any socket error as
+            LOG.error("Socket error on read: %s", str(e))
+            connection.close_input()
+            # make an attempt to cleanly close
+            connection.close()
+
     connection.process(time.time())
     if writable:
-        pyngus.write_socket_output(connection, my_socket)
+        try:
+            pyngus.write_socket_output(connection, my_socket)
+        except Exception as e:
+            LOG.error("Socket error on write %s", str(e))
+            connection.close_output()
+            # this may not help, but it won't hurt:
+            connection.close()
     return True
 
 # Map the send callback status to a string

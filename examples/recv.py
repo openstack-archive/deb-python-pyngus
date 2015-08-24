@@ -33,6 +33,42 @@ LOG = logging.getLogger()
 LOG.addHandler(logging.StreamHandler())
 
 
+class ConnectionEventHandler(pyngus.ConnectionEventHandler):
+    def connection_failed(self, connection, error):
+        """Connection has failed in some way."""
+        LOG.warn("Connection failed: %s", error)
+        connection.close()
+
+    def connection_remote_closed(self, connection, pn_condition):
+        """Peer has closed its end of the connection."""
+        LOG.debug("connection_remote_closed condition=%s", pn_condition)
+        connection.close()
+
+
+class ReceiverEventHandler(pyngus.ReceiverEventHandler):
+    def __init__(self):
+        self.done = False
+        self.message = None
+        self.handle = None
+
+    def receiver_remote_closed(self, receiver_link, pn_condition):
+        """Peer has closed its end of the link."""
+        LOG.debug("receiver_remote_closed condition=%s", pn_condition)
+        receiver_link.close()
+        self.done = True
+
+    def receiver_failed(self, receiver_link, error):
+        """Protocol error occurred."""
+        LOG.warn("receiver_failed error=%s", error)
+        receiver_link.close()
+        self.done = True
+
+    def message_received(self, receiver, message, handle):
+        self.done = True
+        self.message = message
+        self.handle = handle
+
+
 def main(argv=None):
 
     _usage = """Usage: %prog [options]"""
@@ -53,6 +89,12 @@ def main(argv=None):
                       help="enable protocol tracing")
     parser.add_option("--ca",
                       help="Certificate Authority PEM file")
+    parser.add_option("--username", type="string",
+                      help="User Id for authentication")
+    parser.add_option("--password", type="string",
+                      help="User password for authentication")
+    parser.add_option("--sasl-mechs", type="string",
+                      help="The list of acceptable SASL mechs")
 
     opts, extra = parser.parse_args(args=argv)
     if opts.debug:
@@ -64,35 +106,28 @@ def main(argv=None):
     #
     container = pyngus.Container(uuid.uuid4().hex)
     conn_properties = {'hostname': host,
-                       'x-server': False,
-                       'x-username': 'guest',
-                       'x-password': 'guest',
-                       'x-sasl-mechs': "ANONYMOUS PLAIN"}
+                       'x-server': False}
     if opts.trace:
         conn_properties["x-trace-protocol"] = True
     if opts.ca:
         conn_properties["x-ssl-ca-file"] = opts.ca
     if opts.idle_timeout:
         conn_properties["idle-time-out"] = opts.idle_timeout
+    if opts.username:
+        conn_properties['x-username'] = opts.username
+    if opts.password:
+        conn_properties['x-password'] = opts.password
+    if opts.sasl_mechs:
+        conn_properties['x-sasl-mechs'] = opts.sasl_mechs
 
+    c_handler = pyngus.ConnectionEventHandler()
     connection = container.create_connection("receiver",
-                                             None,  # no events
+                                             c_handler,
                                              conn_properties)
     connection.open()
 
-    class ReceiveCallback(pyngus.ReceiverEventHandler):
-        def __init__(self):
-            self.done = False
-            self.message = None
-            self.handle = None
-
-        def message_received(self, receiver, message, handle):
-            self.done = True
-            self.message = message
-            self.handle = handle
-
     target_address = opts.target_addr or uuid.uuid4().hex
-    cb = ReceiveCallback()
+    cb = ReceiverEventHandler()
     receiver = connection.create_receiver(target_address,
                                           opts.source_addr,
                                           cb)
@@ -104,8 +139,10 @@ def main(argv=None):
         process_connection(connection, my_socket)
 
     if cb.done:
-        print("Receive done, message=%s" % str(cb.message))
-        receiver.message_accepted(cb.handle)
+        print("Receive done, message=%s" % str(cb.message) if cb.message
+              else "ERROR: no message received")
+        if cb.handle:
+            receiver.message_accepted(cb.handle)
     else:
         print("Receive failed due to connection failure!")
 

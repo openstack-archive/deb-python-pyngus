@@ -42,6 +42,40 @@ _snd_settle_modes = {"settled": proton.Link.SND_SETTLED,
 _rcv_settle_modes = {"first": proton.Link.RCV_FIRST,
                      "second": proton.Link.RCV_SECOND}
 
+#TODO(kgiusti): this is duplicated in connection.py, put in common file
+class _CallbackLock(object):
+    """A utility class for detecting when a callback invokes a non-reentrant
+    Pyngus method.
+    """
+    def __init__(self, link):
+        super(_CallbackLock, self).__init__()
+        self._link = link
+        self.in_callback = 0
+
+    def __enter__(self):
+        # manually lock parent - can't enter its non-reentrant methods
+        self._link._connection._callback_lock.__enter__()
+        self.in_callback += 1
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.in_callback -= 1
+        self._link._connection._callback_lock.__exit__(None, None, None)
+        # if a call is made to a non-reentrant method while this context is
+        # held, then the method will raise a RuntimeError().  Return false to
+        # propagate the exception to the caller
+        return False
+
+def _not_reentrant(func):
+    """Decorator that prevents callbacks from calling into link methods that
+    are not reentrant """
+    def wrap(*args, **kws):
+        link = args[0]
+        if link._callback_lock.in_callback:
+            m = "Link %s cannot be invoked from a callback!" % func
+            raise RuntimeError(m)
+        return func(*args, **kws)
+    return wrap
 
 class _Link(Endpoint):
     """A generic Link base class."""
@@ -54,6 +88,7 @@ class _Link(Endpoint):
         self._user_context = None
         self._rejected = False  # requested link was refused
         self._failed = False  # protocol error occurred
+        self._callback_lock = _CallbackLock(self)
         # TODO(kgiusti): raise jira to add 'context' attr to api
         self._pn_link = pn_link
         pn_link.context = self
@@ -213,10 +248,12 @@ class _Link(Endpoint):
             if pn_event.type == proton.Event.DELIVERY:
                 pn_delivery = pn_event.context
                 pn_link = pn_delivery.link
-                pn_link.context._process_delivery(pn_delivery)
+                if pn_link.context:
+                    pn_link.context._process_delivery(pn_delivery)
             elif pn_event.type == proton.Event.LINK_FLOW:
                 pn_link = pn_event.context
-                pn_link.context._process_credit()
+                if pn_link.context:
+                    pn_link.context._process_credit()
             elif ep_event is not None:
                 pn_link = pn_event.context
                 if pn_link.context:
@@ -310,7 +347,8 @@ class SenderEventHandler(object):
         LOG.debug("sender_active (ignored)")
 
     def sender_remote_closed(self, sender_link, pn_condition):
-        LOG.debug("sender_remote_closed (ignored)")
+        LOG.debug("sender_remote_closed condition=%s (ignored)",
+                  pn_condition)
 
     def sender_closed(self, sender_link):
         LOG.debug("sender_closed (ignored)")
@@ -320,7 +358,7 @@ class SenderEventHandler(object):
 
     def sender_failed(self, sender_link, error):
         """Protocol error occurred."""
-        LOG.debug("sender_failed (ignored)")
+        LOG.debug("sender_failed error=%s (ignored)", error)
 
 
 class SenderLink(_Link):
@@ -366,7 +404,8 @@ class SenderLink(_Link):
             if self.tag in self.link._send_requests:
                 del self.link._send_requests[self.tag]
             if self.callback:
-                self.callback(self.link, self.handle, state, info)
+                with self.link._callback_lock:
+                    self.callback(self.link, self.handle, state, info)
 
     def __init__(self, connection, pn_link):
         super(SenderLink, self).__init__(connection, pn_link)
@@ -419,6 +458,7 @@ class SenderLink(_Link):
         self._pn_link.source.type = proton.Terminus.UNSPECIFIED
         super(SenderLink, self).reject(pn_condition)
 
+    @_not_reentrant
     def destroy(self):
         self._connection._remove_sender(self._name)
         self._connection = None
@@ -476,7 +516,8 @@ class SenderLink(_Link):
         if self._handler and not self._rejected:
             if self._last_credit <= 0 and new_credit > 0:
                 LOG.debug("Credit is available, link=%s", self.name)
-                self._handler.credit_granted(self)
+                with self._callback_lock:
+                    self._handler.credit_granted(self)
         self._last_credit = new_credit
 
     def _write_msg(self, pn_delivery, send_req):
@@ -501,20 +542,23 @@ class SenderLink(_Link):
 
     def _link_failed(self, error):
         if self._handler and not self._rejected:
-            self._handler.sender_failed(self, error)
+            with self._callback_lock:
+                self._handler.sender_failed(self, error)
 
     # endpoint state machine actions:
 
     def _ep_active(self):
         LOG.debug("SenderLink is up")
         if self._handler and not self._rejected:
-            self._handler.sender_active(self)
+            with self._callback_lock:
+                self._handler.sender_active(self)
 
     def _ep_need_close(self):
         LOG.debug("SenderLink remote closed")
         if self._handler and not self._rejected:
             cond = self._pn_link.remote_condition
-            self._handler.sender_remote_closed(self, cond)
+            with self._callback_lock:
+                self._handler.sender_remote_closed(self, cond)
 
     def _ep_closed(self):
         LOG.debug("SenderLink close completed")
@@ -526,7 +570,8 @@ class SenderLink(_Link):
             key, send_req = self._send_requests.popitem()
             send_req.destroy(SenderLink.ABORTED, info)
         if self._handler and not self._rejected:
-            self._handler.sender_closed(self)
+            with self._callback_lock:
+                self._handler.sender_closed(self)
 
     def _ep_requested(self):
         LOG.debug("Remote has requested a SenderLink")
@@ -551,11 +596,12 @@ class SenderLink(_Link):
             elif (dist_mode == proton.Terminus.DIST_MODE_MOVE):
                 props["distribution-mode"] = "move"
 
-            handler.sender_requested(self._connection,
-                                     pn_link.name,  # handle
-                                     pn_link.name,
-                                     req_source,
-                                     props)
+            with self._connection._callback_lock:
+                handler.sender_requested(self._connection,
+                                         pn_link.name,  # handle
+                                         pn_link.name,
+                                         req_source,
+                                         props)
 
 
 class ReceiverEventHandler(object):
@@ -564,14 +610,15 @@ class ReceiverEventHandler(object):
         LOG.debug("receiver_active (ignored)")
 
     def receiver_remote_closed(self, receiver_link, pn_condition):
-        LOG.debug("receiver_remote_closed (ignored)")
+        LOG.debug("receiver_remote_closed condition=%s (ignored)",
+                  pn_condition)
 
     def receiver_closed(self, receiver_link):
         LOG.debug("receiver_closed (ignored)")
 
     def receiver_failed(self, receiver_link, error):
         """Protocol error occurred."""
-        LOG.debug("receiver_failed (ignored)")
+        LOG.debug("receiver_failed error=%s (ignored)", error)
 
     def message_received(self, receiver_link, message, handle):
         LOG.debug("message_received (ignored)")
@@ -631,6 +678,7 @@ class ReceiverLink(_Link):
         self._pn_link.target.type = proton.Terminus.UNSPECIFIED
         super(ReceiverLink, self).reject(pn_condition)
 
+    @_not_reentrant
     def destroy(self):
         self._connection._remove_receiver(self._name)
         self._connection = None
@@ -651,7 +699,8 @@ class ReceiverLink(_Link):
                 handle = "rmsg-%s:%x" % (self._name, self._next_handle)
                 self._next_handle += 1
                 self._unsettled_deliveries[handle] = pn_delivery
-                self._handler.message_received(self, msg, handle)
+                with self._callback_lock:
+                    self._handler.message_received(self, msg, handle)
             else:
                 # TODO(kgiusti): is it ok to assume Delivery.REJECTED?
                 pn_delivery.settle()
@@ -662,25 +711,29 @@ class ReceiverLink(_Link):
 
     def _link_failed(self, error):
         if self._handler and not self._rejected:
-            self._handler.receiver_failed(self, error)
+            with self._callback_lock:
+                self._handler.receiver_failed(self, error)
 
     # endpoint state machine actions:
 
     def _ep_active(self):
         LOG.debug("ReceiverLink is up")
         if self._handler and not self._rejected:
-            self._handler.receiver_active(self)
+            with self._callback_lock:
+                self._handler.receiver_active(self)
 
     def _ep_need_close(self):
         LOG.debug("ReceiverLink remote closed")
         if self._handler and not self._rejected:
             cond = self._pn_link.remote_condition
-            self._handler.receiver_remote_closed(self, cond)
+            with self._callback_lock:
+                self._handler.receiver_remote_closed(self, cond)
 
     def _ep_closed(self):
         LOG.debug("ReceiverLink close completed")
         if self._handler and not self._rejected:
-            self._handler.receiver_closed(self)
+            with self._callback_lock:
+                self._handler.receiver_closed(self)
 
     def _ep_requested(self):
         LOG.debug("Remote has initiated a ReceiverLink")
@@ -705,11 +758,12 @@ class ReceiverLink(_Link):
             elif (dist_mode == proton.Terminus.DIST_MODE_MOVE):
                 props["distribution-mode"] = "move"
 
-            handler.receiver_requested(self._connection,
-                                       pn_link.name,  # handle
-                                       pn_link.name,
-                                       req_target,
-                                       props)
+            with self._connection._callback_lock:
+                handler.receiver_requested(self._connection,
+                                           pn_link.name,  # handle
+                                           pn_link.name,
+                                           req_target,
+                                           props)
 
 
 class _SessionProxy(Endpoint):
