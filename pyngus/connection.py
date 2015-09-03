@@ -270,14 +270,14 @@ class Connection(Endpoint):
                 if mechs:
                     self.pn_sasl.mechanisms(mechs)
             else:
-                # new Proton SASL configuration
+                # new Proton SASL configuration:
+                # maintain old behavior: allow PLAIN and ANONYMOUS
+                # authentication.  Override this using x-sasl-mechs below:
+                self.pn_sasl.allow_insecure_mechs = True
                 if 'x-require-auth' in self._properties:
                     ra = self._properties['x-require-auth']
                     self._pn_transport.require_auth(ra)
                 if 'x-username' in self._properties:
-                    # maintain old behavior: allow PLAIN and ANONYMOUS
-                    # authentication.  Override this using x-sasl-mechs below:
-                    self.pn_sasl.allow_insecure_mechs = True
                     self._pn_connection.user = self._properties['x-username']
                 if 'x-password' in self._properties:
                     self._pn_connection.password = \
