@@ -830,7 +830,7 @@ class CyrusTest(common.Test):
         _t = "echo trustno1 | saslpasswd2 -c -p -f ${db} -u pyngus user"
         cmd = Template(_t).substitute(db=db)
         try:
-            subprocess.call(args=cmd, shell=True)
+            subprocess.check_call(args=cmd, shell=True)
         except:
             shutil.rmtree(self._conf_dir, ignore_errors=True)
             self._conf_dir = None
