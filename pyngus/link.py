@@ -210,6 +210,7 @@ class _Link(Endpoint):
         self._user_context = None
         self._connection = None
         self._handler = None
+        self._callback_lock = None
         if self._pn_link:
             session = self._pn_link.session.context
             self._pn_link.context = None

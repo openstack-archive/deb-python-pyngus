@@ -113,7 +113,7 @@ class Connection(Endpoint):
         not reentrant
         """
         def wrap(self, *args, **kws):
-            if self._callback_lock.in_callback:
+            if self._callback_lock and self._callback_lock.in_callback:
                 m = "Connection %s cannot be invoked from a callback!" % func
                 raise RuntimeError(m)
             return func(self, *args, **kws)
@@ -396,20 +396,33 @@ class Connection(Endpoint):
             LOG.debug("Connection with buffered output destroyed")
         self._error = "Destroyed by the application"
         self._handler = None
-        self._sender_links.clear()
-        self._receiver_links.clear()
+        self._properties = None
+        tmp = self._sender_links.copy()
+        for l in tmp.values():
+            l.destroy()
+        assert(len(self._sender_links) == 0)
+        tmp = self._receiver_links.copy()
+        for l in tmp.values():
+            l.destroy()
+        assert(len(self._receiver_links) == 0)
+        self._timers = None
+        self._timers_heap = None
         self._container.remove_connection(self._name)
         self._container = None
         self._user_context = None
+        self._callback_lock = None
         if self._transport_bound:
             self._pn_transport.unbind()
         self._pn_transport = None
+        self._pn_connection.free()
         self._pn_connection = None
         if _PROTON_VERSION < (0, 8):
             # memory leak: drain the collector before releasing it
             while self._pn_collector.peek():
                 self._pn_collector.pop()
         self._pn_collector = None
+        self._pn_sasl = None
+        self._pn_ssl = None
 
     _REMOTE_REQ = (proton.Endpoint.LOCAL_UNINIT
                    | proton.Endpoint.REMOTE_ACTIVE)
