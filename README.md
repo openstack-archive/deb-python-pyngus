@@ -7,6 +7,11 @@ callback-based API for message passing.
 
 See the User Guide in the docs directory for more detail.
 
+## Release 2.0.3 ##
+
+* bugfix: fixed a memory leak
+* bugfix: cyrus test fixed
+
 ## Release 2.0.0 ##
 
 * Support for proton 0.10
