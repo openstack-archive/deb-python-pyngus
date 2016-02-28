@@ -12,8 +12,8 @@ Build-Depends: debhelper (>= 9),
 Build-Depends-Indep: python-qpid-proton (>= 0.9),
                      python3-qpid-proton (>= 0.9),
 Standards-Version: 3.9.6
-Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/python-pyngus.git
-Vcs-Git: git://anonscm.debian.org/openstack/python-pyngus.git
+Vcs-Browser: https://anonscm.debian.org/cgit/openstack/python-pyngus.git/
+Vcs-Git: https://anonscm.debian.org/git/openstack/python-pyngus.git
 Homepage: https://github.com/kgiusti/pyngus
 
 Package: python-pyngus
