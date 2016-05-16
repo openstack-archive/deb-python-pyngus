@@ -234,24 +234,17 @@ class APITest(common.Test):
         c2.close()
         c2.process(3)
 
-    def test_sasl_callbacks(self):
+    def test_sasl_callbacks_old(self):
         """Verify sasl_done() callback is invoked"""
-        if self.PROTON_VERSION >= (0, 10):
-            server_props = {'x-server': True,
-                            'x-sasl-mechs': 'ANONYMOUS'}
-            client_props = {'x-server': False,
-                            'x-username': 'user-foo',
-                            'x-password': 'pass-word',
-                            'x-sasl-mechs': 'ANONYMOUS PLAIN'}
-
-        else:
-            server_props = {'x-server': True,
-                            'x-require-auth': True,
-                            'x-sasl-mechs': 'PLAIN'}
-            client_props = {'x-server': False,
-                            'x-username': 'user-foo',
-                            'x-password': 'pass-word',
-                            'x-sasl-mechs': 'PLAIN'}
+        if hasattr(SASL, "extended") and SASL.extended():
+            raise common.Skipped("Test does not apply")
+        server_props = {'x-server': True,
+                        'x-require-auth': True,
+                        'x-sasl-mechs': 'PLAIN'}
+        client_props = {'x-server': False,
+                        'x-username': 'user-foo',
+                        'x-password': 'pass-word',
+                        'x-sasl-mechs': 'PLAIN'}
 
         class SaslCallbackServer(common.ConnCallback):
             def sasl_step(self, connection, pn_sasl):
