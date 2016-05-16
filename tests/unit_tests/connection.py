@@ -812,53 +812,59 @@ class APITest(common.Test):
 class CyrusTest(common.Test):
     """A test class for SASL authentication tests using the Cyrus SASL library
     """
-
-    def setup(self):
-        """Create a simple SASL configuration. This assumes saslpasswd2 is in
-        the OS path, otherwise the test will be skipped.
-        """
-        if not hasattr(SASL, "extended") or not SASL.extended():
-            raise common.Skipped("Cyrus SASL not supported")
-
-        super(CyrusTest, self).setup()
-        self.container1 = pyngus.Container("test-container-1")
-        self.container2 = pyngus.Container("test-container-2")
-
+    # Note: the Cyrus SASL library can only be initialized once per process, so
+    # do it during definition
+    CONF_DIR = None
+    TEST_COUNT = 2
+    if hasattr(SASL, "extended") and SASL.extended():
+        CONF_DIR = tempfile.mkdtemp()
+        CONF_NAME = "test-server"
         # add a user 'user@pyngus', password 'trustno1':
-        self._conf_dir = tempfile.mkdtemp()
-        db = os.path.join(self._conf_dir, 'test.sasldb')
+        db = os.path.join(CONF_DIR, 'test.sasldb')
         _t = "echo trustno1 | saslpasswd2 -c -p -f ${db} -u pyngus user"
         cmd = Template(_t).substitute(db=db)
         try:
             subprocess.check_call(args=cmd, shell=True)
         except:
-            shutil.rmtree(self._conf_dir, ignore_errors=True)
-            self._conf_dir = None
-            raise common.Skipped("saslpasswd2 not installed")
+            shutil.rmtree(CONF_DIR, ignore_errors=True)
+            CONF_DIR = None
 
-        # configure the SASL server:
-        self._conf_name = "test-server"
-        conf = os.path.join(self._conf_dir, '%s.conf' % self._conf_name)
-        t = Template("""sasldb_path: ${db}
+        if CONF_DIR:
+            # configure the SASL server:
+            conf = os.path.join(CONF_DIR, '%s.conf' % CONF_NAME)
+            t = Template("""sasldb_path: ${db}
 mech_list: EXTERNAL DIGEST-MD5 SCRAM-SHA-1 CRAM-MD5 PLAIN ANONYMOUS
 """)
-        with open(conf, 'w') as f:
-            f.write(t.substitute(db=db))
+            with open(conf, 'w') as f:
+                f.write(t.substitute(db=db))
+
+    def setup(self):
+        """Create a simple SASL configuration. This assumes saslpasswd2 is in
+        the OS path, otherwise the test will be skipped.
+        """
+        super(CyrusTest, self).setup()
+        if not CyrusTest.CONF_DIR:
+            raise common.Skipped("Cyrus SASL not supported")
+
+        self.container1 = pyngus.Container("test-container-1")
+        self.container2 = pyngus.Container("test-container-2")
 
     def teardown(self):
         if self.container1:
             self.container1.destroy()
         if self.container2:
             self.container2.destroy()
-        if self._conf_dir:
-            shutil.rmtree(self._conf_dir, ignore_errors=True)
+        if CyrusTest.CONF_DIR:
+            CyrusTest.TEST_COUNT -= 1
+            if CyrusTest.TEST_COUNT == 0:
+                shutil.rmtree(CyrusTest.CONF_DIR, ignore_errors=True)
         super(CyrusTest, self).teardown()
 
     def test_cyrus_sasl_ok(self):
         server_props = {'x-server': True,
                         'x-require-auth': True,
-                        'x-sasl-config-dir': self._conf_dir,
-                        'x-sasl-config-name': self._conf_name}
+                        'x-sasl-config-dir': CyrusTest.CONF_DIR,
+                        'x-sasl-config-name': CyrusTest.CONF_NAME}
         client_props = {'x-server': False,
                         'x-username': 'user@pyngus',
                         'x-password': 'trustno1'}
@@ -878,8 +884,8 @@ mech_list: EXTERNAL DIGEST-MD5 SCRAM-SHA-1 CRAM-MD5 PLAIN ANONYMOUS
     def test_cyrus_sasl_fail(self):
         server_props = {'x-server': True,
                         'x-require-auth': True,
-                        'x-sasl-config-dir': self._conf_dir,
-                        'x-sasl-config-name': self._conf_name}
+                        'x-sasl-config-dir': CyrusTest.CONF_DIR,
+                        'x-sasl-config-name': CyrusTest.CONF_NAME}
         client_props = {'x-server': False,
                         'x-username': 'user@pyngus',
                         'x-password': 'bad-password'}
@@ -900,3 +906,6 @@ mech_list: EXTERNAL DIGEST-MD5 SCRAM-SHA-1 CRAM-MD5 PLAIN ANONYMOUS
         # outcome 1 == auth error
         assert c2_events.sasl_done_outcome == 1, c2_events.sasl_done_outcome
         assert c2_events.failed_ct == 1, c2_events.failed_ct
+
+
+        # NOTE WELL: Update TEST_COUNT as new test methods are added!!
