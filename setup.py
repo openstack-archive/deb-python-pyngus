@@ -33,7 +33,7 @@ try:
 except ImportError:
     # this version of proton will download and install the proton shared
     # library as well:
-    _dependencies = ['python-qpid-proton>=0.9,<0.11']
+    _dependencies = ['python-qpid-proton>=0.9,<0.13']
 
 
 setup(name="pyngus",

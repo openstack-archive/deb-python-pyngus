@@ -900,5 +900,6 @@ mech_list: EXTERNAL DIGEST-MD5 SCRAM-SHA-1 CRAM-MD5 PLAIN ANONYMOUS
         assert c2_events.sasl_done_outcome == 1, c2_events.sasl_done_outcome
         assert c2_events.failed_ct == 1, c2_events.failed_ct
 
-
+        #
         # NOTE WELL: Update TEST_COUNT as new test methods are added!!
+        #
