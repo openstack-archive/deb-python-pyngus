@@ -2,6 +2,7 @@ python-pyngus (2.0.3-2) UNRELEASED; urgency=medium
 
   * Fixed VCS URLs (https).
   * d/rules: Changed UPSTREAM_GIT protocol to https
+  * d/copyright: Changed source URL to https protocol
 
  -- Ondřej Nový <novy@ondrej.org>  Sun, 28 Feb 2016 15:47:38 +0100
 
