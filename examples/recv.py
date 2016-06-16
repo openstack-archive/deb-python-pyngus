@@ -138,7 +138,7 @@ def main(argv=None):
     if opts.sasl_config_name:
         conn_properties["x-sasl-config-name"] = opts.sasl_config_name
 
-    c_handler = pyngus.ConnectionEventHandler()
+    c_handler = ConnectionEventHandler()
     connection = container.create_connection("receiver",
                                              c_handler,
                                              conn_properties)
