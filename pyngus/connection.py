@@ -779,9 +779,10 @@ class Connection(Endpoint):
             deadline = heapq.heappop(self._timers_heap)
             callbacks = self._timers.get(deadline)
             if callbacks:
-                del self._timers[deadline]
                 for cb in callbacks:
                     cb()
+            del self._timers[deadline]
+
         return self._timers_heap[0] if self._timers_heap else 0
 
     # Proton's event model was changed after 0.7

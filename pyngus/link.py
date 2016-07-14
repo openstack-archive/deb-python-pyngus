@@ -431,9 +431,6 @@ class SenderLink(_Link):
         self._pn_link.delivery(tag)
         LOG.debug("Sending a message, tag=%s", tag)
 
-        if deadline:
-            self._connection._add_timer(deadline, send_req)
-
         pn_delivery = self._pn_link.current
         if pn_delivery and pn_delivery.writable:
             # send oldest pending:
