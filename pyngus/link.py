@@ -394,8 +394,8 @@ class SenderLink(_Link):
             self.handle = handle
             self.deadline = deadline
             self.link._send_requests[self.tag] = self
-            if deadline:
-                self.link._connection._add_timer(deadline, self)
+            if self.deadline:
+                self.link._connection._add_timer(self.deadline, self)
 
         def __call__(self):
             """Invoked by Connection on timeout (now <= deadline)."""
@@ -403,7 +403,7 @@ class SenderLink(_Link):
 
         def destroy(self, state, info):
             """Invoked on final completion of send."""
-            if self.deadline and state != SenderLink.TIMED_OUT:
+            if self.deadline:
                 self.link._connection._cancel_timer(self.deadline, self)
             if self.tag in self.link._send_requests:
                 del self.link._send_requests[self.tag]

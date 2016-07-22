@@ -405,7 +405,7 @@ class Connection(Endpoint):
         for l in tmp.values():
             l.destroy()
         assert(len(self._receiver_links) == 0)
-        self._timers = None
+        self._timers.clear()
         self._timers_heap = None
         self._container.remove_connection(self._name)
         self._container = None
@@ -757,15 +757,13 @@ class Connection(Endpoint):
 
     def _add_timer(self, deadline, callback):
         callbacks = self._timers.get(deadline)
-        if callbacks:
-            callbacks.add(callback)
-        else:
+        if callbacks is None:
             callbacks = set()
-            callbacks.add(callback)
             self._timers[deadline] = callbacks
             heapq.heappush(self._timers_heap, deadline)
             if deadline < self._next_deadline:
                 self._next_deadline = deadline
+        callbacks.add(callback)
 
     def _cancel_timer(self, deadline, callback):
         callbacks = self._timers.get(deadline)
@@ -778,9 +776,8 @@ class Connection(Endpoint):
                self._timers_heap[0] <= now):
             deadline = heapq.heappop(self._timers_heap)
             callbacks = self._timers.get(deadline)
-            if callbacks:
-                for cb in callbacks:
-                    cb()
+            while callbacks:
+                callbacks.pop()()
             del self._timers[deadline]
 
         return self._timers_heap[0] if self._timers_heap else 0

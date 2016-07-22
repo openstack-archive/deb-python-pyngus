@@ -31,8 +31,6 @@ class Container(object):
     def __init__(self, name, properties=None):
         self._name = name
         self._connections = {}
-        self._timer_heap = []  # (next_tick, connection)
-        self._need_processing = set()
         self._properties = properties
 
     def destroy(self):
