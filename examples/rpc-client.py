@@ -373,7 +373,7 @@ def main(argv=None):
 
     # Create the RPC caller
     method = {'method': method_info[0],
-              'args': dict([(method_info[i], method_info[i+1])
+              'args': dict([(method_info[i], method_info[i + 1])
                             for i in range(1, len(method_info), 2)])}
     my_caller = my_connection.create_caller(method,
                                             "my-source-address",

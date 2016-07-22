@@ -424,8 +424,6 @@ class Connection(Endpoint):
         self._pn_sasl = None
         self._pn_ssl = None
 
-    _REMOTE_REQ = (proton.Endpoint.LOCAL_UNINIT
-                   | proton.Endpoint.REMOTE_ACTIVE)
     _CLOSED = (proton.Endpoint.LOCAL_CLOSED | proton.Endpoint.REMOTE_CLOSED)
     _ACTIVE = (proton.Endpoint.LOCAL_ACTIVE | proton.Endpoint.REMOTE_ACTIVE)
 

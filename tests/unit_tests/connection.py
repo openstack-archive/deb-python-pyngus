@@ -201,8 +201,8 @@ class APITest(common.Test):
         assert c1_events.remote_closed_ct == 0
         c2.close()
         common.process_connections(c1, c2)
-        assert (c1_events.remote_closed_ct == 1
-                and c2_events.remote_closed_ct == 0)
+        assert (c1_events.remote_closed_ct == 1 and
+                c2_events.remote_closed_ct == 0)
         assert c1_events.closed_ct == 0 and c2_events.closed_ct == 0
         assert not c1.active and not c2.active
         c1.close()

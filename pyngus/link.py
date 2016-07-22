@@ -188,15 +188,15 @@ class _Link(Endpoint):
     def active(self):
         state = self._pn_link.state
         return (not self._failed and
-                state == (proton.Endpoint.LOCAL_ACTIVE
-                          | proton.Endpoint.REMOTE_ACTIVE))
+                state == (proton.Endpoint.LOCAL_ACTIVE |
+                          proton.Endpoint.REMOTE_ACTIVE))
 
     @property
     def closed(self):
         state = self._pn_link.state
         return (self._failed or
-                state == (proton.Endpoint.LOCAL_CLOSED
-                          | proton.Endpoint.REMOTE_CLOSED))
+                state == (proton.Endpoint.LOCAL_CLOSED |
+                          proton.Endpoint.REMOTE_CLOSED))
 
     def reject(self, pn_condition):
         self._rejected = True  # prevent 'active' callback!
