@@ -248,22 +248,27 @@ class _Link(Endpoint):
 
         @staticmethod
         def _handle_proton_event(pn_event, connection):
-            ep_event = _Link._endpoint_event_map.get(pn_event.type)
-            if pn_event.type == proton.Event.DELIVERY:
-                pn_delivery = pn_event.context
-                pn_link = pn_delivery.link
-                if pn_link.context:
-                    pn_link.context._process_delivery(pn_delivery)
-            elif pn_event.type == proton.Event.LINK_FLOW:
-                pn_link = pn_event.context
-                if pn_link.context:
-                    pn_link.context._process_credit()
-            elif ep_event is not None:
-                pn_link = pn_event.context
-                if pn_link.context:
+            etype = pn_event.type
+            if etype == proton.Event.DELIVERY:
+                pn_link = pn_event.link
+                pn_link.context and \
+                    pn_link.context._process_delivery(pn_event.delivery)
+                return True
+
+            if etype == proton.Event.LINK_FLOW:
+                pn_link = pn_event.link
+                pn_link.context and pn_link.context._process_credit()
+                return True
+
+            ep_event = _Link._endpoint_event_map.get(etype)
+            if ep_event is not None:
+                pn_link = pn_event.link
+                pn_link.context and \
                     pn_link.context._process_endpoint_event(ep_event)
-            elif pn_event.type == proton.Event.LINK_INIT:
-                pn_link = pn_event.context
+                return True
+
+            if etype == proton.Event.LINK_INIT:
+                pn_link = pn_event.link
                 # create a new link if requested by remote:
                 c = hasattr(pn_link, 'context') and pn_link.context
                 if not c:
@@ -278,11 +283,14 @@ class _Link(Endpoint):
                         LOG.debug("Remotely initiated Receiver needs init")
                         link = session.request_receiver(pn_link)
                         connection._receiver_links[pn_link.name] = link
-            elif pn_event.type == proton.Event.LINK_FINAL:
+                return True
+
+            if etype == proton.Event.LINK_FINAL:
                 LOG.debug("link finalized: %s", pn_event.context)
-            else:
-                return False  # unknown
-            return True  # handled
+                return True
+
+            return False  # event not handled
+
     elif hasattr(proton.Event, "LINK_REMOTE_STATE"):
         # 0.7 proton event model
         @staticmethod

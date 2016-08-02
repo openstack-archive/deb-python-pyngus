@@ -475,11 +475,12 @@ class Connection(Endpoint):
         pn_event = self._pn_collector.peek()
         while pn_event:
             LOG.debug("pn_event: %s received", pn_event.type)
-            if self._handle_proton_event(pn_event):
+            # links will generate the most events, poll them first
+            if _Link._handle_proton_event(pn_event, self):
+                pass
+            elif self._handle_proton_event(pn_event):
                 pass
             elif _SessionProxy._handle_proton_event(pn_event, self):
-                pass
-            elif _Link._handle_proton_event(pn_event, self):
                 pass
             self._pn_collector.pop()
             pn_event = self._pn_collector.peek()
