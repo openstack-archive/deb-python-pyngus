@@ -106,7 +106,7 @@ class Connection(Endpoint):
     # set of all SASL connection configuration properties
     _SASL_PROPS = set(['x-username', 'x-password', 'x-require-auth',
                        'x-sasl-mechs', 'x-sasl-config-dir',
-                       'x-sasl-config-name'])
+                       'x-sasl-config-name', 'x-force-sasl'])
 
     def _not_reentrant(func):
         """Decorator that prevents callbacks from calling into methods that are
@@ -161,6 +161,13 @@ class Connection(Endpoint):
 
         x-sasl-config-name: string, name of the Cyrus SASL configuration file
         contained in the x-sasl-config-dir (without the '.conf' suffix)
+
+        x-force-sasl: by default SASL authentication is disabled.  SASL will be
+        enabled if any of the above x-sasl-* options are set. For clients using
+        GSSAPI it is likely none of these options will be set.  In order for
+        these clients to authenticate this flag must be set true.  The value of
+        this property is ignored if any of the other SASL related properties
+        are set.
 
         x-ssl-identity: tuple, contains identifying certificate information
         which will be presented to the peer.  The first item in the tuple is
@@ -248,6 +255,11 @@ class Connection(Endpoint):
 
         self._pn_sasl = None
         self._sasl_done = False
+
+        # if x-force-sasl is false remove it so it does not trigger the SASL
+        # configuration logic below
+        if not self._properties.get('x-force-sasl', True):
+            del self._properties['x-force-sasl']
 
         if self._SASL_PROPS.intersection(set(self._properties.keys())):
             # SASL config specified, need to enable SASL

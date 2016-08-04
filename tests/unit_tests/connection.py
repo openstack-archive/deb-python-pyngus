@@ -903,3 +903,53 @@ mech_list: EXTERNAL DIGEST-MD5 SCRAM-SHA-1 CRAM-MD5 PLAIN ANONYMOUS
         #
         # NOTE WELL: Update TEST_COUNT as new test methods are added!!
         #
+
+
+class SASLTest(common.Test):
+    """A test class to check SASL configuration flags.
+    """
+
+    def setup(self):
+        super(SASLTest, self).setup()
+        # logging.getLogger("pyngus").setLevel(logging.DEBUG)
+        self.container1 = pyngus.Container("test-container-1")
+
+    def teardown(self):
+        if self.container1:
+            self.container1.destroy()
+
+    def _header_protocol(self, conn):
+        # fetch the protocol # from the AMQP header
+        conn.open()
+        conn.process(time.time())
+        assert conn.has_output >= 5, "header expected"
+        p = conn.output_data()[4]
+        try:
+            return ord(p) if isinstance(p, str) else int(p)
+        except:
+            assert False, "could not convert protocol"
+
+    def test_sasl_disabled(self):
+        """Verify SASL is disabled when it is NOT configured.
+        """
+        c1 = self.container1.create_connection("c1")
+        p = self._header_protocol(c1)
+        assert p == 0, "Bad protocol - expect '0' got '%s'" % p
+
+    def test_sasl_force(self):
+        """Verify SASL is enabled if forced
+        """
+        props = {'x-force-sasl': True}
+        c1 = self.container1.create_connection("c1",
+                                               properties=props)
+        p = self._header_protocol(c1)
+        assert p == 3, "Bad protocol - expect '3' got '%s'" % p
+
+    def test_sasl_force_false(self):
+        """Verify setting x-force-sasl to False does not enable SASL.
+        """
+        props = {'x-force-sasl': False}
+        c1 = self.container1.create_connection("c1",
+                                               properties=props)
+        p = self._header_protocol(c1)
+        assert p == 0, "Bad protocol - expect '0' got '%s'" % p
