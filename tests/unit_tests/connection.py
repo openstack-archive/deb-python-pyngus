@@ -240,11 +240,11 @@ class APITest(common.Test):
             raise common.Skipped("Test does not apply")
         server_props = {'x-server': True,
                         'x-require-auth': True,
-                        'x-sasl-mechs': 'PLAIN'}
+                        'x-sasl-mechs': 'PLAIN ANONYMOUS'}
         client_props = {'x-server': False,
                         'x-username': 'user-foo',
                         'x-password': 'pass-word',
-                        'x-sasl-mechs': 'PLAIN'}
+                        'x-sasl-mechs': 'PLAIN ANONYMOUS'}
 
         class SaslCallbackServer(common.ConnCallback):
             def sasl_step(self, connection, pn_sasl):
