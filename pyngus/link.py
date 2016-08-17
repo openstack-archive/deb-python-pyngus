@@ -521,13 +521,12 @@ class SenderLink(_Link):
             pn_delivery = self._pn_link.current
 
         # Alert if credit has become available
-        new_credit = self._pn_link.credit
         if self._handler and not self._rejected:
-            if self._last_credit <= 0 and new_credit > 0:
+            if 0 < self._pn_link.credit > self._last_credit:
                 LOG.debug("Credit is available, link=%s", self.name)
                 with self._callback_lock:
                     self._handler.credit_granted(self)
-        self._last_credit = new_credit
+        self._last_credit = self._pn_link.credit
 
     def _write_msg(self, pn_delivery, send_req):
         # given a writable delivery, send a message

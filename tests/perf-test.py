@@ -148,7 +148,7 @@ class PerfReceiver(pyngus.ReceiverEventHandler):
         self.perf_conn.latency += latency
         self.perf_conn.latency_min = min(latency, self.perf_conn.latency_min)
         self.perf_conn.latency_max = max(latency, self.perf_conn.latency_max)
-        if self.link.capacity < self.credit_low and \
+        if self.link.capacity <= self.credit_low and \
            self.received < self.msg_count:
             self.link.add_capacity(self.credit_window - self.link.capacity)
         elif self.received == self.msg_count:
