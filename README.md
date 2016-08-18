@@ -7,6 +7,12 @@ callback-based API for message passing.
 
 See the User Guide in the docs directory for more detail.
 
+## Release 2.1.1 ##
+
+* bugfix: under some (rare) flow/credit interactions a sender may
+  stall.  Changed code to invoke credit_granted() callback more
+  frequently.
+
 ## Release 2.1.0 ##
 
 * feature: add 'x-force-sasl' to connection property map

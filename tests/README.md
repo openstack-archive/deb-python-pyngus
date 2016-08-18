@@ -28,24 +28,17 @@ perf-test.py is a static performance test.  It simulates sending many
 small messages over many links.  It can be used to gauge the
 performance impact of code changes during development.
 
-To run, invoke it using the *time* command.  Example:
+Example:
 
-    $ time ./tests/python/perf-test.py
-    
-    real        2m15.789s
-    user        2m15.357s
-    sys         0m0.039s
+$ ./tests/perf-test.py
+Total: 200000 messages; credit window: 10; proton (0, 13, 1)
+6434 Messages/second; Latency avg: 24.581ms min: 10.419ms max: 45.249ms
 
 ## Historical Results ##
 
-### Lenovo T530 ###
+### Lenovo W541 ###
 
-    master @ 7cc6f77b781916ee679d36e8fd1d1bcf77760353 (Proton 0.7 RC4)
-    real   2m1.102s
-    user   2m0.814s
-    sys    0m0.026s
-
-    0.1.0-p0.7:
-    real   3m7.240s
-    user   3m6.832s
-    sys    0m0.026s
+v2.1.1
+Python 2.7.11
+Total: 200000 messages; credit window: 10; proton (0, 13, 1)
+6434 Messages/second; Latency avg: 24.581ms min: 10.419ms max: 45.249ms
