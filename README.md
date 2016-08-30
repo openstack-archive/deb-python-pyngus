@@ -7,6 +7,10 @@ callback-based API for message passing.
 
 See the User Guide in the docs directory for more detail.
 
+## Release 2.1.2 ##
+
+* Bump max proton version to 0.14
+
 ## Release 2.1.1 ##
 
 * bugfix: under some (rare) flow/credit interactions a sender may
