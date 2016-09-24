@@ -20,9 +20,13 @@ __all__ = [
     "Connection"
 ]
 
+import atexit
+import collections
 import heapq
 import logging
+import pdb
 import proton
+import time
 import warnings
 
 from pyngus.endpoint import Endpoint
@@ -97,6 +101,67 @@ class ConnectionEventHandler(object):
     def sasl_done(self, connection, pn_sasl, result):
         """SASL exchange complete."""
         LOG.debug("sasl_done (ignored)")
+
+
+class RxMsgTimer(object):
+    def __init__(self):
+        super(RxMsgTimer, self).__init__()
+        self._last_push = None
+        self._total = 0.0
+        self._count = 0
+        self._min = None
+        self._max = None
+
+    def input_pushed(self):
+        self._last_push = time.time()
+
+    def msg_passed(self):
+        if self._last_push:
+            diff = time.time() - self._last_push
+            if self._min is None or diff < self._min:
+                self._min = diff
+            if self._max is None or diff > self._max:
+                self._max = diff
+            self._total += diff
+            self._count += 1
+
+    def results(self):
+        if self._count:
+            logging.error("RX Msg Time - avg: %f min: %f max: %f",
+                          self._total / float(self._count),
+                          self._min, self._max)
+
+class TxMsgTimer(object):
+    def __init__(self):
+        super(TxMsgTimer, self).__init__()
+        self._deque = collections.deque()
+        self._total = 0.0
+        self._count = 0
+        self._min = None
+        self._max = None
+
+    def msg_sent(self):
+        #pdb.set_trace()
+        self._deque.append(time.time())
+
+    def output_read(self):
+        #pdb.set_trace()
+        now = time.time()
+        while self._deque:
+            t = self._deque.popleft()
+            diff = now - t
+            if self._min is None or diff < self._min:
+                self._min = diff
+            if self._max is None or diff > self._max:
+                self._max = diff
+            self._total += diff
+            self._count += 1
+
+    def results(self):
+        if self._count:
+            logging.error("TX Msg Time - avg: %f min: %f max: %f",
+                          self._total / float(self._count),
+                          self._min, self._max)
 
 
 class Connection(Endpoint):
@@ -313,6 +378,10 @@ class Connection(Endpoint):
         except:
             self.destroy()
             raise
+        self.rx_timer = RxMsgTimer()
+        self.tx_timer = TxMsgTimer()
+        atexit.register(self.rx_timer.results)
+        atexit.register(self.tx_timer.results)
 
     @property
     def container(self):

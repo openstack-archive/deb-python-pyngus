@@ -64,6 +64,7 @@ def read_socket_input(connection, socket_obj):
             raise  # caller must handle
 
     if len(sock_data) > 0:
+        connection.rx_timer.input_pushed()
         count = connection.process_input(sock_data)
     else:
         LOG.debug("Socket closed")
@@ -88,6 +89,7 @@ def write_socket_output(connection, socket_obj):
     if not data:
         # error - has_output > 0, but no data?
         return Connection.EOS
+    connection.tx_timer.output_read()
 
     while True:
         try:

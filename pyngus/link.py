@@ -431,6 +431,7 @@ class SenderLink(_Link):
 
     def send(self, message, delivery_callback=None,
              handle=None, deadline=None):
+        self._connection.tx_timer.msg_sent()
         tag = "pyngus-tag-%s" % self._next_tag
         self._next_tag += 1
         send_req = SenderLink._SendRequest(self, tag, message,
@@ -708,6 +709,7 @@ class ReceiverLink(_Link):
                 self._next_handle += 1
                 self._unsettled_deliveries[handle] = pn_delivery
                 with self._callback_lock:
+                    self._connection.rx_timer.msg_passed()
                     self._handler.message_received(self, msg, handle)
             else:
                 # TODO(kgiusti): is it ok to assume Delivery.REJECTED?
