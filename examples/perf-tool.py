@@ -21,7 +21,6 @@
 
 import logging
 import optparse
-import sys
 import time
 import uuid
 
