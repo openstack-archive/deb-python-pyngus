@@ -437,7 +437,6 @@ class SenderLink(_Link):
                                            delivery_callback, handle,
                                            deadline)
         self._pn_link.delivery(tag)
-        LOG.debug("Sending a message, tag=%s", tag)
 
         pn_delivery = self._pn_link.current
         if pn_delivery and pn_delivery.writable:
@@ -446,7 +445,6 @@ class SenderLink(_Link):
                 self._pending_sends.append(tag)
                 tag = self._pending_sends.popleft()
                 send_req = self._send_requests[tag]
-                LOG.debug("Sending previous pending message, tag=%s", tag)
             self._write_msg(pn_delivery, send_req)
         else:
             LOG.debug("Send is pending for credit, tag=%s", tag)
@@ -475,13 +473,9 @@ class SenderLink(_Link):
 
     def _process_delivery(self, pn_delivery):
         """Check if the delivery can be processed."""
-
-        LOG.debug("Processing send delivery, tag=%s",
-                  str(pn_delivery.tag))
         if pn_delivery.tag in self._send_requests:
             if pn_delivery.settled or pn_delivery.remote_state:
                 # remote has reached a 'terminal state'
-                LOG.debug("Remote has processed a sent msg")
                 outcome = pn_delivery.remote_state
                 state = SenderLink._DISPOSITION_STATE_MAP.get(outcome,
                                                               self.UNKNOWN)
@@ -501,7 +495,6 @@ class SenderLink(_Link):
                 pn_delivery.settle()
             elif pn_delivery.writable:
                 # we can now send on this delivery
-                LOG.debug("Delivery has become writable")
                 if self._pending_sends:
                     tag = self._pending_sends.popleft()
                     send_req = self._send_requests[tag]
@@ -513,7 +506,6 @@ class SenderLink(_Link):
 
     def _process_credit(self):
         # check if any pending deliveries are now writable:
-        LOG.debug("credit event, link=%s", self.name)
         pn_delivery = self._pn_link.current
         while (self._pending_sends and
                pn_delivery and pn_delivery.writable):
@@ -523,14 +515,12 @@ class SenderLink(_Link):
         # Alert if credit has become available
         if self._handler and not self._rejected:
             if 0 < self._pn_link.credit > self._last_credit:
-                LOG.debug("Credit is available, link=%s", self.name)
                 with self._callback_lock:
                     self._handler.credit_granted(self)
         self._last_credit = self._pn_link.credit
 
     def _write_msg(self, pn_delivery, send_req):
         # given a writable delivery, send a message
-        LOG.debug("Sending message to engine, tag=%s", send_req.tag)
         self._pn_link.send(send_req.message.encode())
         self._pn_link.advance()
         self._last_credit = self._pn_link.credit
@@ -694,10 +684,7 @@ class ReceiverLink(_Link):
 
     def _process_delivery(self, pn_delivery):
         """Check if the delivery can be processed."""
-        LOG.debug("Processing receive delivery, tag=%s",
-                  str(pn_delivery.tag))
         if pn_delivery.readable and not pn_delivery.partial:
-            LOG.debug("Receive delivery readable")
             data = self._pn_link.recv(pn_delivery.pending)
             msg = proton.Message()
             msg.decode(data)

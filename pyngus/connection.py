@@ -486,8 +486,7 @@ class Connection(Endpoint):
         # process events from proton:
         pn_event = self._pn_collector.peek()
         while pn_event:
-            LOG.debug("pn_event: %s received", pn_event.type)
-            # links will generate the most events, poll them first
+            # LOG.debug("pn_event: %s received", pn_event.type)
             if _Link._handle_proton_event(pn_event, self):
                 pass
             elif self._handle_proton_event(pn_event):
@@ -548,7 +547,6 @@ class Connection(Endpoint):
         if c <= 0:
             return c
         try:
-            LOG.debug("pushing %s bytes to transport:", c)
             rc = self._pn_transport.push(in_data[:c])
         except Exception as e:
             self._read_done = True
@@ -597,7 +595,6 @@ class Connection(Endpoint):
         if c <= 0:
             return None
         try:
-            LOG.debug("Getting %s bytes output from transport", c)
             buf = self._pn_transport.peek(c)
         except Exception as e:
             self._connection_failed(str(e))
@@ -606,7 +603,6 @@ class Connection(Endpoint):
 
     def output_written(self, count):
         try:
-            LOG.debug("Popping %s bytes output from transport", count)
             self._pn_transport.pop(count)
         except Exception as e:
             self._write_done = True
