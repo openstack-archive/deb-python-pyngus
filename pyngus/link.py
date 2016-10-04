@@ -188,15 +188,15 @@ class _Link(Endpoint):
     def active(self):
         state = self._pn_link.state
         return (not self._failed and
-                state == (proton.Endpoint.LOCAL_ACTIVE
-                          | proton.Endpoint.REMOTE_ACTIVE))
+                state == (proton.Endpoint.LOCAL_ACTIVE |
+                          proton.Endpoint.REMOTE_ACTIVE))
 
     @property
     def closed(self):
         state = self._pn_link.state
         return (self._failed or
-                state == (proton.Endpoint.LOCAL_CLOSED
-                          | proton.Endpoint.REMOTE_CLOSED))
+                state == (proton.Endpoint.LOCAL_CLOSED |
+                          proton.Endpoint.REMOTE_CLOSED))
 
     def reject(self, pn_condition):
         self._rejected = True  # prevent 'active' callback!
@@ -248,22 +248,27 @@ class _Link(Endpoint):
 
         @staticmethod
         def _handle_proton_event(pn_event, connection):
-            ep_event = _Link._endpoint_event_map.get(pn_event.type)
-            if pn_event.type == proton.Event.DELIVERY:
-                pn_delivery = pn_event.context
-                pn_link = pn_delivery.link
-                if pn_link.context:
-                    pn_link.context._process_delivery(pn_delivery)
-            elif pn_event.type == proton.Event.LINK_FLOW:
-                pn_link = pn_event.context
-                if pn_link.context:
-                    pn_link.context._process_credit()
-            elif ep_event is not None:
-                pn_link = pn_event.context
-                if pn_link.context:
+            etype = pn_event.type
+            if etype == proton.Event.DELIVERY:
+                pn_link = pn_event.link
+                pn_link.context and \
+                    pn_link.context._process_delivery(pn_event.delivery)
+                return True
+
+            if etype == proton.Event.LINK_FLOW:
+                pn_link = pn_event.link
+                pn_link.context and pn_link.context._process_credit()
+                return True
+
+            ep_event = _Link._endpoint_event_map.get(etype)
+            if ep_event is not None:
+                pn_link = pn_event.link
+                pn_link.context and \
                     pn_link.context._process_endpoint_event(ep_event)
-            elif pn_event.type == proton.Event.LINK_INIT:
-                pn_link = pn_event.context
+                return True
+
+            if etype == proton.Event.LINK_INIT:
+                pn_link = pn_event.link
                 # create a new link if requested by remote:
                 c = hasattr(pn_link, 'context') and pn_link.context
                 if not c:
@@ -278,11 +283,14 @@ class _Link(Endpoint):
                         LOG.debug("Remotely initiated Receiver needs init")
                         link = session.request_receiver(pn_link)
                         connection._receiver_links[pn_link.name] = link
-            elif pn_event.type == proton.Event.LINK_FINAL:
+                return True
+
+            if etype == proton.Event.LINK_FINAL:
                 LOG.debug("link finalized: %s", pn_event.context)
-            else:
-                return False  # unknown
-            return True  # handled
+                return True
+
+            return False  # event not handled
+
     elif hasattr(proton.Event, "LINK_REMOTE_STATE"):
         # 0.7 proton event model
         @staticmethod
@@ -394,8 +402,8 @@ class SenderLink(_Link):
             self.handle = handle
             self.deadline = deadline
             self.link._send_requests[self.tag] = self
-            if deadline:
-                self.link._connection._add_timer(deadline, self)
+            if self.deadline:
+                self.link._connection._add_timer(self.deadline, self)
 
         def __call__(self):
             """Invoked by Connection on timeout (now <= deadline)."""
@@ -403,7 +411,7 @@ class SenderLink(_Link):
 
         def destroy(self, state, info):
             """Invoked on final completion of send."""
-            if self.deadline and state != SenderLink.TIMED_OUT:
+            if self.deadline:
                 self.link._connection._cancel_timer(self.deadline, self)
             if self.tag in self.link._send_requests:
                 del self.link._send_requests[self.tag]
@@ -430,9 +438,6 @@ class SenderLink(_Link):
                                            deadline)
         self._pn_link.delivery(tag)
         LOG.debug("Sending a message, tag=%s", tag)
-
-        if deadline:
-            self._connection._add_timer(deadline, send_req)
 
         pn_delivery = self._pn_link.current
         if pn_delivery and pn_delivery.writable:
@@ -516,13 +521,12 @@ class SenderLink(_Link):
             pn_delivery = self._pn_link.current
 
         # Alert if credit has become available
-        new_credit = self._pn_link.credit
         if self._handler and not self._rejected:
-            if self._last_credit <= 0 and new_credit > 0:
+            if 0 < self._pn_link.credit > self._last_credit:
                 LOG.debug("Credit is available, link=%s", self.name)
                 with self._callback_lock:
                     self._handler.credit_granted(self)
-        self._last_credit = new_credit
+        self._last_credit = self._pn_link.credit
 
     def _write_msg(self, pn_delivery, send_req):
         # given a writable delivery, send a message

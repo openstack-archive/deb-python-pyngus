@@ -201,8 +201,8 @@ class APITest(common.Test):
         assert c1_events.remote_closed_ct == 0
         c2.close()
         common.process_connections(c1, c2)
-        assert (c1_events.remote_closed_ct == 1
-                and c2_events.remote_closed_ct == 0)
+        assert (c1_events.remote_closed_ct == 1 and
+                c2_events.remote_closed_ct == 0)
         assert c1_events.closed_ct == 0 and c2_events.closed_ct == 0
         assert not c1.active and not c2.active
         c1.close()
@@ -234,24 +234,17 @@ class APITest(common.Test):
         c2.close()
         c2.process(3)
 
-    def test_sasl_callbacks(self):
+    def test_sasl_callbacks_old(self):
         """Verify sasl_done() callback is invoked"""
-        if self.PROTON_VERSION >= (0, 10):
-            server_props = {'x-server': True,
-                            'x-sasl-mechs': 'ANONYMOUS'}
-            client_props = {'x-server': False,
-                            'x-username': 'user-foo',
-                            'x-password': 'pass-word',
-                            'x-sasl-mechs': 'ANONYMOUS PLAIN'}
-
-        else:
-            server_props = {'x-server': True,
-                            'x-require-auth': True,
-                            'x-sasl-mechs': 'PLAIN'}
-            client_props = {'x-server': False,
-                            'x-username': 'user-foo',
-                            'x-password': 'pass-word',
-                            'x-sasl-mechs': 'PLAIN'}
+        if hasattr(SASL, "extended") and SASL.extended():
+            raise common.Skipped("Test does not apply")
+        server_props = {'x-server': True,
+                        'x-require-auth': True,
+                        'x-sasl-mechs': 'PLAIN ANONYMOUS'}
+        client_props = {'x-server': False,
+                        'x-username': 'user-foo',
+                        'x-password': 'pass-word',
+                        'x-sasl-mechs': 'PLAIN ANONYMOUS'}
 
         class SaslCallbackServer(common.ConnCallback):
             def sasl_step(self, connection, pn_sasl):
@@ -812,53 +805,59 @@ class APITest(common.Test):
 class CyrusTest(common.Test):
     """A test class for SASL authentication tests using the Cyrus SASL library
     """
-
-    def setup(self):
-        """Create a simple SASL configuration. This assumes saslpasswd2 is in
-        the OS path, otherwise the test will be skipped.
-        """
-        if not hasattr(SASL, "extended") or not SASL.extended():
-            raise common.Skipped("Cyrus SASL not supported")
-
-        super(CyrusTest, self).setup()
-        self.container1 = pyngus.Container("test-container-1")
-        self.container2 = pyngus.Container("test-container-2")
-
+    # Note: the Cyrus SASL library can only be initialized once per process, so
+    # do it during definition
+    CONF_DIR = None
+    TEST_COUNT = 2
+    if hasattr(SASL, "extended") and SASL.extended():
+        CONF_DIR = tempfile.mkdtemp()
+        CONF_NAME = "test-server"
         # add a user 'user@pyngus', password 'trustno1':
-        self._conf_dir = tempfile.mkdtemp()
-        db = os.path.join(self._conf_dir, 'test.sasldb')
+        db = os.path.join(CONF_DIR, 'test.sasldb')
         _t = "echo trustno1 | saslpasswd2 -c -p -f ${db} -u pyngus user"
         cmd = Template(_t).substitute(db=db)
         try:
             subprocess.check_call(args=cmd, shell=True)
         except:
-            shutil.rmtree(self._conf_dir, ignore_errors=True)
-            self._conf_dir = None
-            raise common.Skipped("saslpasswd2 not installed")
+            shutil.rmtree(CONF_DIR, ignore_errors=True)
+            CONF_DIR = None
 
-        # configure the SASL server:
-        self._conf_name = "test-server"
-        conf = os.path.join(self._conf_dir, '%s.conf' % self._conf_name)
-        t = Template("""sasldb_path: ${db}
+        if CONF_DIR:
+            # configure the SASL server:
+            conf = os.path.join(CONF_DIR, '%s.conf' % CONF_NAME)
+            t = Template("""sasldb_path: ${db}
 mech_list: EXTERNAL DIGEST-MD5 SCRAM-SHA-1 CRAM-MD5 PLAIN ANONYMOUS
 """)
-        with open(conf, 'w') as f:
-            f.write(t.substitute(db=db))
+            with open(conf, 'w') as f:
+                f.write(t.substitute(db=db))
+
+    def setup(self):
+        """Create a simple SASL configuration. This assumes saslpasswd2 is in
+        the OS path, otherwise the test will be skipped.
+        """
+        super(CyrusTest, self).setup()
+        if not CyrusTest.CONF_DIR:
+            raise common.Skipped("Cyrus SASL not supported")
+
+        self.container1 = pyngus.Container("test-container-1")
+        self.container2 = pyngus.Container("test-container-2")
 
     def teardown(self):
         if self.container1:
             self.container1.destroy()
         if self.container2:
             self.container2.destroy()
-        if self._conf_dir:
-            shutil.rmtree(self._conf_dir, ignore_errors=True)
+        if CyrusTest.CONF_DIR:
+            CyrusTest.TEST_COUNT -= 1
+            if CyrusTest.TEST_COUNT == 0:
+                shutil.rmtree(CyrusTest.CONF_DIR, ignore_errors=True)
         super(CyrusTest, self).teardown()
 
     def test_cyrus_sasl_ok(self):
         server_props = {'x-server': True,
                         'x-require-auth': True,
-                        'x-sasl-config-dir': self._conf_dir,
-                        'x-sasl-config-name': self._conf_name}
+                        'x-sasl-config-dir': CyrusTest.CONF_DIR,
+                        'x-sasl-config-name': CyrusTest.CONF_NAME}
         client_props = {'x-server': False,
                         'x-username': 'user@pyngus',
                         'x-password': 'trustno1'}
@@ -878,8 +877,8 @@ mech_list: EXTERNAL DIGEST-MD5 SCRAM-SHA-1 CRAM-MD5 PLAIN ANONYMOUS
     def test_cyrus_sasl_fail(self):
         server_props = {'x-server': True,
                         'x-require-auth': True,
-                        'x-sasl-config-dir': self._conf_dir,
-                        'x-sasl-config-name': self._conf_name}
+                        'x-sasl-config-dir': CyrusTest.CONF_DIR,
+                        'x-sasl-config-name': CyrusTest.CONF_NAME}
         client_props = {'x-server': False,
                         'x-username': 'user@pyngus',
                         'x-password': 'bad-password'}
@@ -900,3 +899,57 @@ mech_list: EXTERNAL DIGEST-MD5 SCRAM-SHA-1 CRAM-MD5 PLAIN ANONYMOUS
         # outcome 1 == auth error
         assert c2_events.sasl_done_outcome == 1, c2_events.sasl_done_outcome
         assert c2_events.failed_ct == 1, c2_events.failed_ct
+
+        #
+        # NOTE WELL: Update TEST_COUNT as new test methods are added!!
+        #
+
+
+class SASLTest(common.Test):
+    """A test class to check SASL configuration flags.
+    """
+
+    def setup(self):
+        super(SASLTest, self).setup()
+        # logging.getLogger("pyngus").setLevel(logging.DEBUG)
+        self.container1 = pyngus.Container("test-container-1")
+
+    def teardown(self):
+        if self.container1:
+            self.container1.destroy()
+
+    def _header_protocol(self, conn):
+        # fetch the protocol # from the AMQP header
+        conn.open()
+        conn.process(time.time())
+        assert conn.has_output >= 5, "header expected"
+        p = conn.output_data()[4]
+        try:
+            return ord(p) if isinstance(p, str) else int(p)
+        except:
+            assert False, "could not convert protocol"
+
+    def test_sasl_disabled(self):
+        """Verify SASL is disabled when it is NOT configured.
+        """
+        c1 = self.container1.create_connection("c1")
+        p = self._header_protocol(c1)
+        assert p == 0, "Bad protocol - expect '0' got '%s'" % p
+
+    def test_sasl_force(self):
+        """Verify SASL is enabled if forced
+        """
+        props = {'x-force-sasl': True}
+        c1 = self.container1.create_connection("c1",
+                                               properties=props)
+        p = self._header_protocol(c1)
+        assert p == 3, "Bad protocol - expect '3' got '%s'" % p
+
+    def test_sasl_force_false(self):
+        """Verify setting x-force-sasl to False does not enable SASL.
+        """
+        props = {'x-force-sasl': False}
+        c1 = self.container1.create_connection("c1",
+                                               properties=props)
+        p = self._header_protocol(c1)
+        assert p == 0, "Bad protocol - expect '0' got '%s'" % p

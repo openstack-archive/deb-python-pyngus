@@ -1,0 +1,7 @@
+include README.md
+include LICENSE
+include docs/User-Guide.md
+
+exclude .gitignore
+
+global-exclude *.pyc

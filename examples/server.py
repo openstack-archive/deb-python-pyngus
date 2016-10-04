@@ -245,19 +245,21 @@ def main(argv=None):
                       help="enable protocol tracing")
     parser.add_option("--debug", dest="debug", action="store_true",
                       help="enable debug logging")
-    parser.add_option("--cert",
+    parser.add_option("--ca",
+                      help="Certificate Authority PEM file")
+    parser.add_option("--cert", "--ssl-cert-file",
                       help="PEM File containing the server's certificate")
-    parser.add_option("--key",
+    parser.add_option("--key", "--ssl-key-file",
                       help="PEM File containing the server's private key")
-    parser.add_option("--keypass",
+    parser.add_option("--keypass", "--ssl-key-password",
                       help="Password used to decrypt key file")
     parser.add_option("--require-auth", action="store_true",
                       help="Require clients to authenticate")
     parser.add_option("--sasl-mechs", type="string",
                       help="The list of acceptable SASL mechs")
-    parser.add_option("--sasl-cfg-name", type="string",
+    parser.add_option("--sasl-cfg-name", "--sasl-config-name", type="string",
                       help="name of SASL config file (no suffix)")
-    parser.add_option("--sasl-cfg-dir", type="string",
+    parser.add_option("--sasl-cfg-dir", "--sasl-config-dir", type="string",
                       help="Path to the SASL config file")
 
     opts, arguments = parser.parse_args(args=argv)

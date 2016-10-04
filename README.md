@@ -7,6 +7,34 @@ callback-based API for message passing.
 
 See the User Guide in the docs directory for more detail.
 
+## Release 2.1.2 ##
+
+* Bump max proton version to 0.14
+
+## Release 2.1.1 ##
+
+* bugfix: under some (rare) flow/credit interactions a sender may
+  stall.  Changed code to invoke credit_granted() callback more
+  frequently.
+
+## Release 2.1.0 ##
+
+* feature: add 'x-force-sasl' to connection property map
+* bugfix: update old SASL unit test
+
+## Release 2.0.4 ##
+
+* Bump max proton version to 0.13
+* performance tweak to link event handling
+* fix perf-test.py tool
+* bugfix: fix leak of timer callbacks
+* enable Python 3.4 testing
+* bugfix: fix receiver example (recv.py)
+* several fixes to the SASL unit tests
+* bugfix: fix leak of underlying proton objects
+* Add SASL/SSL configuration options to examples
+* bugfix: allow PLAIN or ANONYMOUS authentication in server mode
+
 ## Release 2.0.3 ##
 
 * bugfix: fixed a memory leak

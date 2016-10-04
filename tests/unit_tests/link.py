@@ -254,8 +254,8 @@ class APITest(common.Test):
         self.process_connections()
         assert receiver.capacity == 4
         assert sender.credit == 4
-        # callback only occurs when credit is no longer zero:
-        assert sl_handler.credit_granted_ct == 1
+        # callback occurs when credit is increased:
+        assert sl_handler.credit_granted_ct == 2
         assert sender.pending == 0
         msg = Message()
         msg.body = "Hi"
@@ -279,26 +279,27 @@ class APITest(common.Test):
         sender.send(msg)
         self.process_connections()
         assert sender.pending == 2
-        assert sl_handler.credit_granted_ct == 1
+        assert sl_handler.credit_granted_ct == 2
         receiver.add_capacity(1)
         self.process_connections()
         assert receiver.capacity == 0
         assert rl_handler.message_received_ct == 5
         assert sender.credit == 0
         assert sender.pending == 1
-        assert sl_handler.credit_granted_ct == 1
+        assert sl_handler.credit_granted_ct == 2
 
         receiver.add_capacity(1)
         self.process_connections()
         assert sender.credit == 0
         assert sender.pending == 0
-        assert sl_handler.credit_granted_ct == 1
+        # credit callback not called since pending ate it
+        assert sl_handler.credit_granted_ct == 2
 
         # verify new credit becomes available:
         receiver.add_capacity(1)
         self.process_connections()
         assert sender.credit == 1
-        assert sl_handler.credit_granted_ct == 2
+        assert sl_handler.credit_granted_ct == 3
 
     def test_send_presettled(self):
         sender, receiver = self._setup_sender_sync()

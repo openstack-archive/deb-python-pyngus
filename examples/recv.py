@@ -89,12 +89,22 @@ def main(argv=None):
                       help="enable protocol tracing")
     parser.add_option("--ca",
                       help="Certificate Authority PEM file")
+    parser.add_option("--ssl-cert-file",
+                      help="Self-identifying certificate (PEM file)")
+    parser.add_option("--ssl-key-file",
+                      help="Key for self-identifying certificate (PEM file)")
+    parser.add_option("--ssl-key-password",
+                      help="Password to unlock SSL key file")
     parser.add_option("--username", type="string",
                       help="User Id for authentication")
     parser.add_option("--password", type="string",
                       help="User password for authentication")
     parser.add_option("--sasl-mechs", type="string",
                       help="The list of acceptable SASL mechs")
+    parser.add_option("--sasl-config-dir", type="string",
+                      help="Path to directory containing sasl config")
+    parser.add_option("--sasl-config-name", type="string",
+                      help="Name of the sasl config file (without '.config')")
 
     opts, extra = parser.parse_args(args=argv)
     if opts.debug:
@@ -111,6 +121,10 @@ def main(argv=None):
         conn_properties["x-trace-protocol"] = True
     if opts.ca:
         conn_properties["x-ssl-ca-file"] = opts.ca
+    if opts.ssl_cert_file:
+        conn_properties["x-ssl-identity"] = (opts.ssl_cert_file,
+                                             opts.ssl_key_file,
+                                             opts.ssl_key_password)
     if opts.idle_timeout:
         conn_properties["idle-time-out"] = opts.idle_timeout
     if opts.username:
@@ -119,8 +133,12 @@ def main(argv=None):
         conn_properties['x-password'] = opts.password
     if opts.sasl_mechs:
         conn_properties['x-sasl-mechs'] = opts.sasl_mechs
+    if opts.sasl_config_dir:
+        conn_properties["x-sasl-config-dir"] = opts.sasl_config_dir
+    if opts.sasl_config_name:
+        conn_properties["x-sasl-config-name"] = opts.sasl_config_name
 
-    c_handler = pyngus.ConnectionEventHandler()
+    c_handler = ConnectionEventHandler()
     connection = container.create_connection("receiver",
                                              c_handler,
                                              conn_properties)
@@ -145,6 +163,10 @@ def main(argv=None):
             receiver.message_accepted(cb.handle)
     else:
         print("Receive failed due to connection failure!")
+
+    # flush any remaining output before closing (optional)
+    while connection.has_output > 0:
+        process_connection(connection, my_socket)
 
     receiver.close()
     connection.close()

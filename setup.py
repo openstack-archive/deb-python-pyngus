@@ -19,7 +19,7 @@
 
 from setuptools import setup
 
-_VERSION = "2.0.3"   # NOTE: update __init__.py too!
+_VERSION = "2.1.2"   # NOTE: update __init__.py too!
 
 # I hack, therefore I am (productive) Some distros (which will not be named)
 # don't use setup.py to install the proton python module.  In this case, pip
@@ -33,7 +33,7 @@ try:
 except ImportError:
     # this version of proton will download and install the proton shared
     # library as well:
-    _dependencies = ['python-qpid-proton>=0.9,<0.11']
+    _dependencies = ['python-qpid-proton>=0.9,<0.15']
 
 
 setup(name="pyngus",
