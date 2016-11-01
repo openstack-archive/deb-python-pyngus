@@ -38,6 +38,11 @@ Total: 200000 messages; credit window: 10; proton (0, 13, 1)
 
 ### Lenovo W541 ###
 
+v2.1.3:
+Python 2.7.11
+Total: 200000 messages; credit window: 10; proton (0, 15, 0)
+7964 Messages/second; Latency avg: 19.609ms min: 9.463ms max: 28.257ms
+
 v2.1.1
 Python 2.7.11
 Total: 200000 messages; credit window: 10; proton (0, 13, 1)

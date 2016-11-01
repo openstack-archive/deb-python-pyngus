@@ -7,6 +7,13 @@ callback-based API for message passing.
 
 See the User Guide in the docs directory for more detail.
 
+## Release 2.1.3 ##
+
+* Remove chatty debug log messages
+* fix pep8 violation
+* add static performace test tool
+* Bump max proton version to 0.15
+
 ## Release 2.1.2 ##
 
 * Bump max proton version to 0.14
