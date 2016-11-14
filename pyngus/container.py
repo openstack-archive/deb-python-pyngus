@@ -65,7 +65,7 @@ class Container(object):
                 readers.append(c)
             if c.has_output > 0:
                 writers.append(c)
-            if c.next_tick:
+            if c.deadline:
                 heapq.heappush(timer_heap, (c.next_tick, c))
         timers = []
         while timer_heap:
