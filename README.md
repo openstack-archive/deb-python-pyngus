@@ -1,3 +1,10 @@
+Team and repository tags
+========================
+
+[![Team and repository tags](http://governance.openstack.org/badges/deb-python-pyngus.svg)](http://governance.openstack.org/reference/tags/index.html)
+
+<!-- Change things from this point on -->
+
 # Pyngus #
 
 [![Build Status](https://travis-ci.org/kgiusti/pyngus.svg)](https://travis-ci.org/kgiusti/pyngus)
