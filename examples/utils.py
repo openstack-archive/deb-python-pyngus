@@ -126,6 +126,7 @@ def process_connection(connection, my_socket):
             connection.close()
     return True
 
+
 # Map the send callback status to a string
 SEND_STATUS = {
     pyngus.SenderLink.ABORTED: "Aborted",

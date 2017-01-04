@@ -28,6 +28,7 @@ from string import Template
 from proton import Condition
 from proton import Message
 from proton import SSLUnavailable
+from proton import SSLException
 from proton import SASL
 import pyngus
 
@@ -348,7 +349,9 @@ class APITest(common.Test):
 
     def _test_ssl(self,
                   server_password="server-password",
-                  server_dns="some.server.com"):
+                  server_dns="some.server.com",
+                  client_password=None,
+                  client_dns=None):
 
         def _testpath(file):
             """ Set the full path to the PEM files."""
@@ -359,12 +362,21 @@ class APITest(common.Test):
                    "x-ssl-identity": (_testpath("server-certificate.pem"),
                                       _testpath("server-private-key.pem"),
                                       server_password)}
+        if client_dns:
+            s_props['x-ssl-ca-file'] = _testpath("ca-certificate.pem")
+            s_props['x-ssl-verify-mode'] = 'verify-peer'
+            s_props['x-ssl-peer-name'] = client_dns
+
         server = self.container1.create_connection("server",
                                                    properties=s_props)
 
         c_props = {"x-ssl-ca-file": _testpath("ca-certificate.pem"),
                    "x-ssl-verify-mode": "verify-peer",
                    "x-ssl-peer-name": server_dns}
+        if client_password:
+            c_props['x-ssl-identity'] = (_testpath("client-certificate.pem"),
+                                         _testpath("client-private-key.pem"),
+                                         client_password)
         client = self.container2.create_connection("client",
                                                    properties=c_props)
         server.open()
@@ -384,7 +396,8 @@ class APITest(common.Test):
             assert False, "error expected!"
         except SSLUnavailable:
             raise common.Skipped("SSL not available.")
-        except Exception:
+        except SSLException:
+            # should fail to open the certificate
             pass
 
     def test_ssl_name_fail(self):
@@ -393,7 +406,37 @@ class APITest(common.Test):
             assert False, "error expected!"
         except SSLUnavailable:
             raise common.Skipped("SSL not available.")
-        except Exception:
+        except AssertionError:
+            # connection setup should fail
+            pass
+
+    def test_ssl_client_auth_ok(self):
+        try:
+            self._test_ssl(client_password="client-password",
+                           client_dns="my.client.com")
+        except SSLUnavailable:
+            raise common.Skipped("SSL not available.")
+
+    def test_ssl_client_pw_fail(self):
+        try:
+            self._test_ssl(client_password="bad password",
+                           client_dns="my.client.com")
+            assert False, "error expected!"
+        except SSLUnavailable:
+            raise common.Skipped("SSL not available.")
+        except SSLException:
+            # should fail to open the certificate
+            pass
+
+    def test_ssl_client_name_fail(self):
+        try:
+            self._test_ssl(client_password="client-password",
+                           client_dns="my.Xclient.com")
+            assert False, "error expected!"
+        except SSLUnavailable:
+            raise common.Skipped("SSL not available.")
+        except AssertionError:
+            # connection setup should fail
             pass
 
     def test_io_input_close(self):

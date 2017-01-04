@@ -68,9 +68,9 @@ $OPENSSL pkcs12 -nocerts -passin pass:server-password -in server.pkcs12 -passout
 CLIENT_COMMON_NAME="my.client.com"
 # Create a certificate request for the client certificate.  Use the CA's certificate to sign it:
 $KEYTOOL -storetype pkcs12 -keystore client.pkcs12 -storepass client-password -alias client-certificate -keypass client-password -genkey  -dname "CN=$CLIENT_COMMON_NAME" -validity 99999
-keytool -storetype pkcs12 -keystore client.pkcs12 -storepass client-password -alias client-certificate -keypass client-password -certreq -file client-request.pem
-keytool -storetype pkcs12 -keystore ca.pkcs12 -storepass ca-password -alias ca -keypass ca-password -gencert -rfc -validity 99999 -infile client-request.pem -outfile client-certificate.pem
-openssl pkcs12 -nocerts -passin pass:client-password -in client.pkcs12 -passout pass:client-password -out client-private-key.pem
+$KEYTOOL -storetype pkcs12 -keystore client.pkcs12 -storepass client-password -alias client-certificate -keypass client-password -certreq -file client-request.pem
+$KEYTOOL -storetype pkcs12 -keystore ca.pkcs12 -storepass ca-password -alias ca -keypass ca-password -gencert -rfc -validity 99999 -infile client-request.pem -outfile client-certificate.pem
+$OPENSSL pkcs12 -nocerts -passin pass:client-password -in client.pkcs12 -passout pass:client-password -out client-private-key.pem
 
 # clean up all the unnecessary stuff
 rm *.pkcs12 *-request.pem
