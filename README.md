@@ -7,6 +7,13 @@ callback-based API for message passing.
 
 See the User Guide in the docs directory for more detail.
 
+## Release 2.1.4 ##
+
+* avoid using deprecated next_tick in the container
+* enable Python 3.5 testing in tox
+* add client authentication via SSL tests
+* bump max proton version to 0.16
+
 ## Release 2.1.3 ##
 
 * Remove chatty debug log messages
