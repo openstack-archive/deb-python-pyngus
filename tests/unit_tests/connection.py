@@ -24,6 +24,7 @@ import subprocess
 import tempfile
 import time
 from string import Template
+import ssl
 
 from proton import Condition
 from proton import Message
@@ -351,7 +352,9 @@ class APITest(common.Test):
                   server_password="server-password",
                   server_dns="some.server.com",
                   client_password=None,
-                  client_dns=None):
+                  client_dns=None,
+                  verify_peer=True,
+                  use_system_ca_bundle=False):
 
         def _testpath(file):
             """ Set the full path to the PEM files."""
@@ -369,10 +372,18 @@ class APITest(common.Test):
 
         server = self.container1.create_connection("server",
                                                    properties=s_props)
-
-        c_props = {"x-ssl-ca-file": _testpath("ca-certificate.pem"),
-                   "x-ssl-verify-mode": "verify-peer",
-                   "x-ssl-peer-name": server_dns}
+        c_props = {}
+        if use_system_ca_bundle:
+            c_props.update({"x-ssl": True})
+            # Overwrite the SSL_CERT_FILE which is used by OpenSSL to use as a
+            # CA bundle. This way we don't need a server certificate trusted by
+            # the system.
+            os.environ['SSL_CERT_FILE'] = _testpath("ca-certificate.pem")
+        else:
+            c_props.update({"x-ssl-ca-file": _testpath("ca-certificate.pem")})
+        if verify_peer:
+            c_props.update({"x-ssl-verify-mode": "verify-peer",
+                            "x-ssl-peer-name": server_dns})
         if client_password:
             c_props['x-ssl-identity'] = (_testpath("client-certificate.pem"),
                                          _testpath("client-private-key.pem"),
@@ -387,6 +398,15 @@ class APITest(common.Test):
     def test_ssl_ok(self):
         try:
             self._test_ssl()
+        except SSLUnavailable:
+            raise common.Skipped("SSL not available.")
+
+    def test_ssl_ok_using_system_ca(self):
+        try:
+            if 'OpenSSL' in ssl.OPENSSL_VERSION:
+                self._test_ssl(use_system_ca_bundle=True)
+            else:
+                raise common.Skipped("OpenSSL not available.")
         except SSLUnavailable:
             raise common.Skipped("SSL not available.")
 
@@ -427,6 +447,12 @@ class APITest(common.Test):
         except SSLException:
             # should fail to open the certificate
             pass
+
+    def test_ssl_no_verify_peer(self):
+        try:
+            self._test_ssl(verify_peer=False)
+        except SSLUnavailable:
+            raise common.Skipped("SSL not available.")
 
     def test_ssl_client_name_fail(self):
         try:

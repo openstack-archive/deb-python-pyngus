@@ -24,6 +24,7 @@ import heapq
 import logging
 import proton
 import warnings
+import ssl
 
 from pyngus.endpoint import Endpoint
 from pyngus.link import _Link
@@ -168,6 +169,11 @@ class Connection(Endpoint):
         these clients to authenticate this flag must be set true.  The value of
         this property is ignored if any of the other SASL related properties
         are set.
+
+        x-ssl: boolean, Allows clients to connect using SSL setting a minimum
+        viable configuration (using the system's CA bundle to validate the
+        peer's certificate). This setting is overwritten if subsequent SSL
+        settings are found.
 
         x-ssl-identity: tuple, contains identifying certificate information
         which will be presented to the peer.  The first item in the tuple is
@@ -729,6 +735,9 @@ class Connection(Endpoint):
 
         identity = properties.get('x-ssl-identity')
         ca_file = properties.get('x-ssl-ca-file')
+
+        if properties.get('x-ssl') and not ca_file:
+            ca_file = ssl.get_default_verify_paths().cafile
 
         if not identity and not ca_file:
             return None  # SSL not configured
