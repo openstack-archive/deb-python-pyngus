@@ -17,9 +17,10 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import os
 from setuptools import setup
 
-_VERSION = "2.1.4"   # NOTE: update __init__.py too!
+_VERSION = "2.2.0"   # NOTE: update __init__.py too!
 
 # I hack, therefore I am (productive) Some distros (which will not be named)
 # don't use setup.py to install the proton python module.  In this case, pip
@@ -33,11 +34,11 @@ try:
 except ImportError:
     # this version of proton will download and install the proton shared
     # library as well:
-    _dependencies = ['python-qpid-proton>=0.9,<0.17']
+    _dependencies = ['python-qpid-proton>=0.9,<0.18']
 
 
 setup(name="pyngus",
-      version=_VERSION,
+      version=_VERSION + os.environ.get('PYNGUS_VERSION_SUFFIX', ''),
       author="kgiusti",
       author_email="kgiusti@apache.org",
       packages=["pyngus"],
@@ -49,4 +50,10 @@ setup(name="pyngus",
       classifiers=["License :: OSI Approved :: Apache Software License",
                    "Intended Audience :: Developers",
                    "Operating System :: OS Independent",
-                   "Programming Language :: Python"])
+                   "Programming Language :: Python",
+                   "Programming Language :: Python :: 2",
+                   "Programming Language :: Python :: 2.7",
+                   "Programming Language :: Python :: 3",
+                   "Programming Language :: Python :: 3.3",
+                   "Programming Language :: Python :: 3.4",
+                   "Programming Language :: Python :: 3.5"])

@@ -109,6 +109,16 @@ class Connection(Endpoint):
                        'x-sasl-mechs', 'x-sasl-config-dir',
                        'x-sasl-config-name', 'x-force-sasl'])
 
+    # set of all SSL connection configuration properties
+    _SSL_PROPS = set(['x-ssl', 'x-ssl-identity', 'x-ssl-ca-file',
+                      'x-ssl-verify-mode', 'x-ssl-server',
+                      'x-ssl-peer-name', 'x-ssl-allow-cleartext'])
+
+    # SSL peer certificate verification
+    _VERIFY_MODES = {'verify-peer': proton.SSLDomain.VERIFY_PEER_NAME,
+                     'verify-cert': proton.SSLDomain.VERIFY_PEER,
+                     'no-verify': proton.SSLDomain.ANONYMOUS_PEER}
+
     def _not_reentrant(func):
         """Decorator that prevents callbacks from calling into methods that are
         not reentrant
@@ -185,7 +195,9 @@ class Connection(Endpoint):
 
         x-ssl-ca-file: string, path to a file containing the certificates of
         the trusted Certificate Authorities that will be used to check the
-        signature of the peer's certificate.
+        signature of the peer's certificate.  Not used if x-ssl-verify-mode
+        is set to 'no-verify'.  To use the system's default CAs instead leave
+        this option out and set x-ssl to True.
 
         x-ssl-verify-mode: string, configure the level of security provided by
         SSL.  Possible values:
@@ -723,11 +735,9 @@ class Connection(Endpoint):
             self._error = error
 
     def _configure_ssl(self, properties):
-        if not properties:
+        if (not properties or
+                not self._SSL_PROPS.intersection(set(iter(properties)))):
             return None
-        verify_modes = {'verify-peer': proton.SSLDomain.VERIFY_PEER_NAME,
-                        'verify-cert': proton.SSLDomain.VERIFY_PEER,
-                        'no-verify': proton.SSLDomain.ANONYMOUS_PEER}
 
         mode = proton.SSLDomain.MODE_CLIENT
         if properties.get('x-ssl-server', properties.get('x-server')):
@@ -735,14 +745,32 @@ class Connection(Endpoint):
 
         identity = properties.get('x-ssl-identity')
         ca_file = properties.get('x-ssl-ca-file')
-
         if properties.get('x-ssl') and not ca_file:
             ca_file = ssl.get_default_verify_paths().cafile
+        hostname = properties.get('x-ssl-peer-name',
+                                  properties.get('hostname'))
+        # default to most secure level of certificate validation
+        if not ca_file:
+            vdefault = 'no-verify'
+        elif not hostname:
+            vdefault = 'verify-cert'
+        else:
+            vdefault = 'verify-peer'
 
-        if not identity and not ca_file:
-            return None  # SSL not configured
+        vmode = properties.get('x-ssl-verify-mode', vdefault)
+        try:
+            vmode = self._VERIFY_MODES[vmode]
+        except KeyError:
+            raise proton.SSLException("bad value for x-ssl-verify-mode: '%s'" %
+                                      vmode)
+        if vmode == proton.SSLDomain.VERIFY_PEER_NAME:
+            if not hostname or not ca_file:
+                raise proton.SSLException("verify-peer needs x-ssl-peer-name"
+                                          " and x-ssl-ca-file")
+        elif vmode == proton.SSLDomain.VERIFY_PEER:
+            if not ca_file:
+                raise proton.SSLException("verify-cert needs x-ssl-ca-file")
 
-        hostname = None
         # This will throw proton.SSLUnavailable if SSL support is not installed
         domain = proton.SSLDomain(mode)
         if identity:
@@ -751,17 +779,7 @@ class Connection(Endpoint):
         if ca_file:
             # how we verify peers:
             domain.set_trusted_ca_db(ca_file)
-            hostname = properties.get('x-ssl-peer-name',
-                                      properties.get('hostname'))
-            vdefault = 'verify-peer' if hostname else 'verify-cert'
-            vmode = verify_modes.get(properties.get('x-ssl-verify-mode',
-                                                    vdefault))
-            # check for configuration error
-            if not vmode:
-                raise proton.SSLException("bad value for x-ssl-verify-mode")
-            if vmode == proton.SSLDomain.VERIFY_PEER_NAME and not hostname:
-                raise proton.SSLException("verify-peer needs x-ssl-peer-name")
-            domain.set_peer_authentication(vmode, ca_file)
+        domain.set_peer_authentication(vmode, ca_file)
         if mode == proton.SSLDomain.MODE_SERVER:
             if properties.get('x-ssl-allow-cleartext'):
                 domain.allow_unsecured_client()

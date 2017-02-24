@@ -348,6 +348,16 @@ class APITest(common.Test):
         assert args.properties.get("distribution-mode") == "move"
         assert args.properties.get("target-address") == "my-target"
 
+    def _ssl_connect(self, s_props, c_props):
+        server = self.container1.create_connection("server",
+                                                   properties=s_props)
+        client = self.container2.create_connection("client",
+                                                   properties=c_props)
+        server.open()
+        client.open()
+        common.process_connections(server, client)
+        assert server.active and client.active
+
     def _test_ssl(self,
                   server_password="server-password",
                   server_dns="some.server.com",
@@ -370,8 +380,6 @@ class APITest(common.Test):
             s_props['x-ssl-verify-mode'] = 'verify-peer'
             s_props['x-ssl-peer-name'] = client_dns
 
-        server = self.container1.create_connection("server",
-                                                   properties=s_props)
         c_props = {}
         if use_system_ca_bundle:
             c_props.update({"x-ssl": True})
@@ -388,12 +396,7 @@ class APITest(common.Test):
             c_props['x-ssl-identity'] = (_testpath("client-certificate.pem"),
                                          _testpath("client-private-key.pem"),
                                          client_password)
-        client = self.container2.create_connection("client",
-                                                   properties=c_props)
-        server.open()
-        client.open()
-        common.process_connections(server, client)
-        assert server.active and client.active
+        self._ssl_connect(s_props, c_props)
 
     def test_ssl_ok(self):
         try:
@@ -464,6 +467,51 @@ class APITest(common.Test):
         except AssertionError:
             # connection setup should fail
             pass
+
+    def test_ssl_bad_verify_mode(self):
+        try:
+            self._ssl_connect({'x-ssl-server': True,
+                               'x-ssl-verify-mode': 'snagglepus'},
+                              {'x-ssl-verify-mode': 'no-verify'})
+            assert False, "error expected!"
+        except SSLUnavailable:
+            raise common.Skipped("SSL not available.")
+        except SSLException:
+            # expected to fail
+            pass
+
+    def test_ssl_bad_no_cert(self):
+        # error: require verification, but no CA given
+        try:
+            self._ssl_connect({'x-ssl-server': True},
+                              {'x-ssl-verify-mode': 'verify-cert'})
+            assert False, "error expected!"
+        except SSLUnavailable:
+            raise common.Skipped("SSL not available.")
+        except SSLException:
+            # expected to fail
+            pass
+
+    def test_ssl_bad_no_peer_name(self):
+        # error: require peer verification, CA supplied but no name given
+        try:
+            self._ssl_connect({'x-ssl-server': True},
+                              {'x-ssl-verify-mode': 'verify-peer',
+                               'x-ssl-ca-file': 'fakefile'})
+            assert False, "error expected!"
+        except SSLUnavailable:
+            raise common.Skipped("SSL not available.")
+        except SSLException:
+            # expected to fail
+            pass
+
+    def test_ssl_minimal(self):
+        # uses anonymous SSL
+        try:
+            self._ssl_connect({'x-ssl-server': True},
+                              {'x-ssl-verify-mode': 'no-verify'})
+        except SSLUnavailable:
+            raise common.Skipped("SSL not available.")
 
     def test_io_input_close(self):
         """Premature input close should trigger failed callback."""

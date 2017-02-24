@@ -7,6 +7,16 @@ callback-based API for message passing.
 
 See the User Guide in the docs directory for more detail.
 
+## Release 2.2.0 ##
+
+* Can now use the system's default CA by specifying the 'x-ssl' option
+  in the 'properties' field of the create_connection call and _NOT_
+  specifying the 'x-ssl-ca-file' property. (contributed by
+  Juan Antonio Osorio Robles)
+* use the most secure default setting for x-ssl-verify-mode based on
+  the configuration
+* bump max proton version to 0.17
+
 ## Release 2.1.4 ##
 
 * avoid using deprecated next_tick in the container
