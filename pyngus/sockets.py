@@ -50,7 +50,6 @@ def read_socket_input(connection, socket_obj):
             LOG.debug("Socket timeout exception %s", str(e))
             raise  # caller must handle
         except socket.error as e:
-            LOG.debug("Socket error exception %s", str(e))
             err = e.errno
             if err in [errno.EAGAIN,
                        errno.EWOULDBLOCK,
@@ -58,6 +57,7 @@ def read_socket_input(connection, socket_obj):
                 # try again later
                 return 0
             # otherwise, unrecoverable, caller must handle
+            LOG.debug("Socket error exception %s", str(e))
             raise
         except Exception as e:  # beats me... assume fatal
             LOG.debug("unknown socket exception %s", str(e))
@@ -97,7 +97,6 @@ def write_socket_output(connection, socket_obj):
             LOG.debug("Socket timeout exception %s", str(e))
             raise  # caller must handle
         except socket.error as e:
-            LOG.debug("Socket error exception %s", str(e))
             err = e.errno
             if err in [errno.EAGAIN,
                        errno.EWOULDBLOCK,
@@ -105,6 +104,7 @@ def write_socket_output(connection, socket_obj):
                 # try again later
                 return 0
             # else assume fatal let caller handle it:
+            LOG.debug("Socket error exception %s", str(e))
             raise
         except Exception as e:  # beats me... assume fatal
             LOG.debug("unknown socket exception %s", str(e))
