@@ -745,7 +745,8 @@ class Connection(Endpoint):
 
         identity = properties.get('x-ssl-identity')
         ca_file = properties.get('x-ssl-ca-file')
-        if properties.get('x-ssl') and not ca_file:
+        if (not ca_file and properties.get('x-ssl') and
+                hasattr(ssl, 'get_default_verify_paths')):
             ca_file = ssl.get_default_verify_paths().cafile
         hostname = properties.get('x-ssl-peer-name',
                                   properties.get('hostname'))
