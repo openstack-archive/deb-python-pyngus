@@ -382,6 +382,8 @@ class APITest(common.Test):
 
         c_props = {}
         if use_system_ca_bundle:
+            if not hasattr(ssl, 'get_default_verify_paths'):
+                raise common.Skipped("Cannot retrieve system CA file.")
             c_props.update({"x-ssl": True})
             # Overwrite the SSL_CERT_FILE which is used by OpenSSL to use as a
             # CA bundle. This way we don't need a server certificate trusted by
