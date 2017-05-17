@@ -7,6 +7,11 @@ callback-based API for message passing.
 
 See the User Guide in the docs directory for more detail.
 
+## Release 2.2.1 ##
+
+* disable the socket I/O logging - fills the debug logs with lots of
+  useless crap.
+
 ## Release 2.2.0 ##
 
 * Can now use the system's default CA by specifying the 'x-ssl' option

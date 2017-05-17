@@ -20,7 +20,7 @@
 import os
 from setuptools import setup
 
-_VERSION = "2.2.0"   # NOTE: update __init__.py too!
+_VERSION = "2.2.1"   # NOTE: update __init__.py too!
 
 # I hack, therefore I am (productive) Some distros (which will not be named)
 # don't use setup.py to install the proton python module.  In this case, pip

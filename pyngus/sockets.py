@@ -70,7 +70,6 @@ def read_socket_input(connection, socket_obj):
         count = Connection.EOS
         connection.close_input()
         connection.close_output()
-    LOG.debug("Socket recv %s bytes", count)
     return count
 
 
@@ -111,7 +110,6 @@ def write_socket_output(connection, socket_obj):
             raise
 
     if count > 0:
-        LOG.debug("Socket sent %s bytes", count)
         connection.output_written(count)
     elif data:
         LOG.debug("Socket closed")

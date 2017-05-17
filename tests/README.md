@@ -38,6 +38,15 @@ Total: 200000 messages; credit window: 10; proton (0, 13, 1)
 
 ### Lenovo W541 ###
 
+v2.2.1
+------
+Python 2.7.13 (Fedora 24)
+Total: 200000 messages; credit window: 10; proton (0, 17, 0)
+8176 Messages/second; Latency avg: 19.116ms min: 9.241ms max: 26.693ms
+Python 3.5.3 (Fedora 24)
+Total: 200000 messages; credit window: 10; proton (0, 17, 0)
+7081 Messages/second; Latency avg: 22.103ms min: 10.926ms max: 40.079ms
+
 v2.1.4
 ------
 Python 2.7.13 (Fedora 24)
